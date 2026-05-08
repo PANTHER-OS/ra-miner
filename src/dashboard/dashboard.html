@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RA Miner — Dashboard</title>
+  <link rel="stylesheet" href="../styles/globals.css">
+  <link rel="stylesheet" href="dashboard.css">
+  <link rel="stylesheet" href="views/views.css">
+</head>
+<body>
+
+  <!-- Sidebar de navegação -->
+  <nav class="sidebar">
+    <div class="sidebar__logo">
+      <img src="../../icons/icon-32.png" width="24" height="24" alt="">
+      <span>RA Miner</span>
+    </div>
+    <ul class="sidebar__nav">
+      <li><a class="nav-item active" data-view="radar"      href="#radar">      📡 Radar</a></li>
+      <li><a class="nav-item"        data-view="trending"   href="#trending">    📈 Trending</a></li>
+      <li><a class="nav-item"        data-view="nichos"     href="#nichos">      🏷️ Nichos</a></li>
+      <li><a class="nav-item"        data-view="watchlist"  href="#watchlist">   ★ Watchlist</a></li>
+      <li><a class="nav-item"        data-view="comparador" href="#comparador">  ⚖️ Comparador</a></li>
+      <li><a class="nav-item"        data-view="historico"  href="#historico">   🕐 Histórico</a></li>
+    </ul>
+    <div class="sidebar__footer">
+      <button id="btn-sync-panther" class="btn btn-ghost btn-sm w-full">Sync Panther</button>
+      <a class="nav-item" data-view="options" href="../options/options.html" target="_self" id="btn-options">⚙️ Configurações</a>
+    </div>
+  </nav>
+
+  <!-- Área principal -->
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar__left">
+        <h1 id="view-title" class="view-title">Radar</h1>
+        <span id="view-subtitle" class="view-subtitle text-muted"></span>
+      </div>
+      <div class="topbar__right">
+        <div id="global-filters"></div>
+        <button id="btn-export" class="btn btn-ghost btn-sm">⬇ Exportar</button>
+        <div id="sync-status" class="sync-status"></div>
+      </div>
+    </header>
+
+    <!-- Views -->
+    <div id="view-container" class="view-container">
+      <div id="view-radar"      class="view active"></div>
+      <div id="view-trending"   class="view hidden"></div>
+      <div id="view-nichos"     class="view hidden"></div>
+      <div id="view-watchlist"  class="view hidden"></div>
+      <div id="view-comparador" class="view hidden"></div>
+      <div id="view-historico"  class="view hidden"></div>
+    </div>
+  </main>
+
+  <!-- Modal de exportação -->
+  <div id="export-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal__header">
+        <h3>Exportar dados</h3>
+        <button id="modal-close" class="btn btn-ghost btn-icon">✕</button>
+      </div>
+      <div class="modal__body">
+        <p class="text-muted" style="font-size:13px">Escolha o formato de exportação:</p>
+        <div class="export-options">
+          <button data-format="csv"  class="btn btn-ghost">📊 CSV (Excel)</button>
+          <button data-format="json" class="btn btn-ghost">📋 JSON</button>
+          <button data-format="pdf"  class="btn btn-ghost">📄 PDF</button>
+          <button data-format="copy" class="btn btn-ghost">📌 Copiar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="dashboard.js"></script>
+</body>
+</html>

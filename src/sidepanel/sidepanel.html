@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RA Miner — Análise</title>
+  <link rel="stylesheet" href="../styles/globals.css">
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <!-- Banner de atualização -->
+  <div id="update-banner" class="update-banner hidden">
+    <div class="update-banner__text">
+      <span class="update-banner__icon">🔄</span>
+      <div>
+        <strong id="update-banner-version">Nova versão disponível</strong>
+        <span class="update-banner__sub">Clique para atualizar</span>
+      </div>
+    </div>
+    <div class="update-banner__actions">
+      <button id="btn-update-now" class="btn btn-accent btn-sm">Atualizar</button>
+      <button id="btn-update-dismiss" class="btn btn-ghost btn-icon btn-sm" title="Dispensar">✕</button>
+    </div>
+  </div>
+
+  <header class="sp-header">
+    <div class="logo">
+      <img src="../../icons/icon-32.png" width="18" height="18" alt="">
+      <span>RA Miner</span>
+    </div>
+    <div class="sp-actions">
+      <button id="btn-refresh" class="btn btn-ghost btn-icon" title="Recarregar análise">↺</button>
+      <button id="btn-watchlist" class="btn btn-ghost btn-icon" title="Adicionar à Watchlist">★</button>
+      <button id="btn-dashboard" class="btn btn-primary btn-sm">Dashboard ↗</button>
+    </div>
+  </header>
+
+  <!-- Estado: carregando -->
+  <div id="state-loading" class="state-panel">
+    <div class="spinner"></div>
+    <p>Analisando empresa...</p>
+  </div>
+
+  <!-- Estado: não é página de empresa -->
+  <div id="state-nopage" class="state-panel hidden">
+    <span class="icon">🔍</span>
+    <p>Navegue para a página de uma empresa no Reclame Aqui.</p>
+  </div>
+
+  <!-- Conteúdo principal -->
+  <div id="content" class="sp-content hidden">
+
+    <!-- Hero: nome + score -->
+    <div class="empresa-hero">
+      <div class="empresa-hero__info">
+        <h2 id="empresa-nome" class="empresa-nome">—</h2>
+        <span id="empresa-segmento" class="text-muted" style="font-size:12px">—</span>
+      </div>
+      <div id="heat-display" class="heat-display">
+        <div class="heat-score" id="heat-score-value">—</div>
+        <div class="heat-tag" id="heat-tag-el"></div>
+      </div>
+    </div>
+
+    <!-- Métricas principais -->
+    <div class="metrics-grid">
+      <div class="metric">
+        <span class="metric__value" id="m-velocity">—</span>
+        <span class="metric__label">Recl./dia (7d)</span>
+      </div>
+      <div class="metric">
+        <span class="metric__value" id="m-acceleration">—</span>
+        <span class="metric__label">Aceleração</span>
+      </div>
+      <div class="metric">
+        <span class="metric__value" id="m-total">—</span>
+        <span class="metric__label">Total Recl.</span>
+      </div>
+      <div class="metric">
+        <span class="metric__value" id="m-score-ra">—</span>
+        <span class="metric__label">Score RA</span>
+      </div>
+    </div>
+
+    <!-- Nicho -->
+    <div class="section">
+      <div class="section__title">Nicho detectado</div>
+      <div id="nicho-badge" class="nicho-badge">—</div>
+    </div>
+
+    <!-- Gráfico sparkline (últimos 30 dias) -->
+    <div class="section">
+      <div class="section__title">Reclamações — últimos 30 dias</div>
+      <canvas id="chart-sparkline" height="80"></canvas>
+    </div>
+
+    <!-- Padrões de reclamação -->
+    <div class="section">
+      <div class="section__title">Padrões detectados</div>
+      <div id="patterns-list" class="patterns-list"></div>
+    </div>
+
+    <!-- Keywords -->
+    <div class="section">
+      <div class="section__title">Palavras-chave principais</div>
+      <div id="keywords-cloud" class="keywords-cloud"></div>
+    </div>
+
+    <!-- Estimativa de vendas -->
+    <div class="section">
+      <div class="section__title">Estimativa de volume de vendas</div>
+      <div class="sales-est" id="sales-est">
+        <div class="sales-est__item">
+          <span class="sales-est__label">Mínimo</span>
+          <span class="sales-est__value text-muted" id="sales-min">—</span>
+        </div>
+        <div class="sales-est__item sales-est__item--mid">
+          <span class="sales-est__label">Estimado</span>
+          <span class="sales-est__value text-accent" id="sales-mid">—</span>
+        </div>
+        <div class="sales-est__item">
+          <span class="sales-est__label">Máximo</span>
+          <span class="sales-est__value text-muted" id="sales-max">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Alerta de spike -->
+    <div id="spike-alert" class="spike-alert hidden">
+      ⚡ Spike detectado nos últimos 3 dias!
+    </div>
+
+  </div>
+
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>

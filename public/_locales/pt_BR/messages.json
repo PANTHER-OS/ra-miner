@@ -1,0 +1,29 @@
+{
+  "extensionName": {
+    "message": "RA Miner — Caçador de Ofertas Escaladas"
+  },
+  "extensionDescription": {
+    "message": "Detecta e rankeia ofertas escaladas no Reclame Aqui via análise de velocidade de reclamações"
+  },
+  "openDashboard": {
+    "message": "Abrir Dashboard"
+  },
+  "heatScore": {
+    "message": "Heat Score"
+  },
+  "escalating": {
+    "message": "Escalando"
+  },
+  "exploding": {
+    "message": "Explodindo"
+  },
+  "cooling": {
+    "message": "Esfriando"
+  },
+  "watchlist": {
+    "message": "Watchlist"
+  },
+  "trending": {
+    "message": "Tendências"
+  }
+}

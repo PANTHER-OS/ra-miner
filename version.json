@@ -1,0 +1,7 @@
+{
+  "version":     "1.0.0",
+  "releaseDate": "2026-05-08",
+  "notes":       "- Versão inicial\n- Detecção de páginas /empresa/slug\n- Heat Score v1\n- Sistema de auto-update",
+  "downloadUrl": "https://github.com/PANTHER-OS/ra-miner/releases/download/v1.0.0/ra-miner-dist.zip",
+  "changelogUrl":"https://github.com/PANTHER-OS/ra-miner/releases"
+}

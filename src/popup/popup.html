@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RA Miner</title>
+  <link rel="stylesheet" href="../styles/globals.css">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <!-- Banner de atualização (aparece quando há nova versão) -->
+  <div id="update-banner" class="update-banner hidden">
+    <div class="update-banner__text">
+      <span class="update-banner__icon">🔄</span>
+      <div>
+        <strong id="update-banner-version">Nova versão disponível</strong>
+        <span class="update-banner__sub">Clique para atualizar</span>
+      </div>
+    </div>
+    <div class="update-banner__actions">
+      <button id="btn-update-now" class="btn btn-accent btn-sm">Atualizar</button>
+      <button id="btn-update-dismiss" class="btn btn-ghost btn-icon btn-sm" title="Dispensar">✕</button>
+    </div>
+  </div>
+
+  <header class="header">
+    <div class="logo">
+      <img src="../../icons/icon-32.png" width="20" height="20" alt="">
+      <span>RA Miner</span>
+    </div>
+    <div class="header-actions">
+      <button id="btn-dashboard" class="btn btn-primary btn-sm" title="Abrir Dashboard">
+        Dashboard ↗
+      </button>
+    </div>
+  </header>
+
+  <div class="stats-row">
+    <div class="stat">
+      <span class="stat__value" id="stat-total">—</span>
+      <span class="stat__label">Empresas</span>
+    </div>
+    <div class="stat">
+      <span class="stat__value text-accent" id="stat-quentes">—</span>
+      <span class="stat__label">Escalando</span>
+    </div>
+    <div class="stat">
+      <span class="stat__value text-red" id="stat-spikes">—</span>
+      <span class="stat__label">Spikes hoje</span>
+    </div>
+  </div>
+
+  <div class="section-title">🔥 Top 10 Mais Quentes</div>
+
+  <div id="loading" class="loading-row">
+    <div class="spinner"></div>
+    <span>Carregando...</span>
+  </div>
+
+  <ul id="list" class="empresa-list hidden"></ul>
+
+  <div id="empty" class="empty-state hidden">
+    <span class="icon">🔍</span>
+    <p>Nenhuma empresa analisada ainda.</p>
+    <p class="text-muted" style="font-size:11px">Visite páginas no Reclame Aqui para começar a coleta.</p>
+  </div>
+
+  <footer class="footer">
+    <button id="btn-sidepanel" class="btn btn-ghost btn-sm">Painel lateral</button>
+    <button id="btn-options" class="btn btn-ghost btn-sm">Configurar</button>
+  </footer>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

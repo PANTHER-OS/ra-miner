@@ -1,0 +1,67 @@
+:root {
+  /* Paleta */
+  --c-bg:          #0d0d0d;
+  --c-surface:     #161616;
+  --c-surface2:    #1e1e1e;
+  --c-border:      #2a2a2a;
+  --c-border2:     #333;
+
+  --c-text:        #f0f0f0;
+  --c-text-muted:  #888;
+  --c-text-dim:    #555;
+
+  --c-accent:      #ff7b00;
+  --c-accent-hi:   #ff9c36;
+  --c-accent-lo:   #7a3a00;
+
+  --c-red:         #ff3d3d;
+  --c-yellow:      #ffd700;
+  --c-green:       #00e676;
+  --c-blue:        #74b9ff;
+  --c-purple:      #a29bfe;
+
+  /* Heat tags */
+  --c-explodindo:  #ff3d3d;
+  --c-escalando:   #ff7b00;
+  --c-aquecendo:   #ffd700;
+  --c-morno:       #74b9ff;
+  --c-esfriando:   #636e72;
+
+  /* Tipografia */
+  --font-sans:     -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono:     'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace;
+
+  --text-xs:   11px;
+  --text-sm:   12px;
+  --text-base: 14px;
+  --text-md:   16px;
+  --text-lg:   20px;
+  --text-xl:   28px;
+
+  /* Espaçamentos */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* Bordas */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  /* Sombras */
+  --shadow-sm:  0 1px 3px rgba(0,0,0,.4);
+  --shadow-md:  0 4px 12px rgba(0,0,0,.5);
+  --shadow-lg:  0 8px 24px rgba(0,0,0,.6);
+  --shadow-glow: 0 0 20px rgba(255,123,0,.25);
+
+  /* Transições */
+  --ease:      cubic-bezier(.4,0,.2,1);
+  --trans-fast: 120ms var(--ease);
+  --trans-base: 220ms var(--ease);
+  --trans-slow: 400ms var(--ease);
+}

@@ -1,0 +1,11 @@
+/* Tema escuro — padrão. Tema claro sobrescreve estas variáveis. */
+[data-theme="light"] {
+  --c-bg:         #f4f5f7;
+  --c-surface:    #ffffff;
+  --c-surface2:   #f0f1f3;
+  --c-border:     #e0e0e0;
+  --c-border2:    #ccc;
+  --c-text:       #111;
+  --c-text-muted: #555;
+  --c-text-dim:   #aaa;
+}

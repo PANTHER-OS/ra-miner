@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RA Miner — Configurações</title>
+  <link rel="stylesheet" href="../styles/globals.css">
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="opts-layout">
+    <aside class="opts-sidebar">
+      <div class="opts-logo">
+        <img src="../../icons/icon-32.png" width="24" height="24" alt="">
+        <span>RA Miner</span>
+      </div>
+      <nav class="opts-nav">
+        <a class="opts-nav__item active" data-tab="coleta">📡 Coleta</a>
+        <a class="opts-nav__item" data-tab="scoring">🔥 Scoring</a>
+        <a class="opts-nav__item" data-tab="notificacoes">🔔 Notificações</a>
+        <a class="opts-nav__item" data-tab="panther">🐆 Panther OS</a>
+        <a class="opts-nav__item" data-tab="dados">🗄️ Dados</a>
+        <a class="opts-nav__item" data-tab="interface">🎨 Interface</a>
+        <a class="opts-nav__item" data-tab="atualizacoes" id="nav-atualizacoes">🔄 Atualizações</a>
+      </nav>
+    </aside>
+
+    <main class="opts-main">
+      <div id="toast-saved" class="opts-toast hidden">✓ Configurações salvas</div>
+
+      <!-- Coleta -->
+      <section id="tab-coleta" class="opts-tab active">
+        <h2>Coleta de Dados</h2>
+
+        <div class="opt-group">
+          <label class="opt-label">Intervalo de atualização da Watchlist</label>
+          <div class="opt-row">
+            <select id="coleta_intervalo_horas" class="input" style="max-width:200px">
+              <option value="1">A cada 1 hora</option>
+              <option value="2">A cada 2 horas</option>
+              <option value="4" selected>A cada 4 horas</option>
+              <option value="6">A cada 6 horas</option>
+              <option value="12">A cada 12 horas</option>
+              <option value="24">Diariamente</option>
+            </select>
+          </div>
+          <p class="opt-hint">Frequência de atualização automática das empresas na sua Watchlist.</p>
+        </div>
+
+        <div class="opt-group">
+          <label class="opt-label">Páginas de reclamações por scrape</label>
+          <input id="paginas_por_scrape" type="number" class="input" style="max-width:120px" min="1" max="10" value="3">
+          <p class="opt-hint">Cada página = 20 reclamações. Mais páginas = mais dados, mais lento.</p>
+        </div>
+
+        <div class="opt-group">
+          <label class="opt-label opt-label--toggle">
+            <span>Scraping automático ao navegar no RA</span>
+            <input type="checkbox" id="scraping_automatico" class="toggle" checked>
+          </label>
+          <p class="opt-hint">Coleta dados automaticamente quando você visita páginas no Reclame Aqui.</p>
+        </div>
+      </section>
+
+      <!-- Scoring -->
+      <section id="tab-scoring" class="opts-tab hidden">
+        <h2>Algoritmo Heat Score</h2>
+        <p class="text-muted" style="font-size:13px;margin-bottom:var(--sp-5)">
+          Personalize os pesos do Heat Score. Total deve somar 100%.
+        </p>
+
+        <div class="weights-editor" id="weights-editor">
+          ${[
+            { id: 'w_velocity',     label: 'Velocity (recl./dia 7d)',    val: 35 },
+            { id: 'w_acceleration', label: 'Acceleration (crescimento)', val: 30 },
+            { id: 'w_recency',      label: 'Recency (% recentes)',       val: 20 },
+            { id: 'w_freshness',    label: 'Freshness (empresa nova)',   val: 10 },
+            { id: 'w_engagement',   label: 'Engagement (interações)',    val: 5  },
+          ].map(w => `
+            <div class="weight-row">
+              <label class="weight-row__label">${w.label}</label>
+              <input type="range" class="weight-slider" id="${w.id}" min="0" max="60" value="${w.val}" data-weight="${w.id}">
+              <span class="weight-value" id="${w.id}_val">${w.val}%</span>
+            </div>
+          `).join('')}
+          <div class="weights-total">
+            Total: <span id="weights-sum">100</span>%
+            <span id="weights-warning" class="hidden text-red"> ⚠ Deve somar 100%</span>
+          </div>
+        </div>
+
+        <button id="btn-reset-weights" class="btn btn-ghost btn-sm mt-4">Restaurar padrões</button>
+      </section>
+
+      <!-- Notificações -->
+      <section id="tab-notificacoes" class="opts-tab hidden">
+        <h2>Notificações</h2>
+
+        <div class="opt-group">
+          <label class="opt-label opt-label--toggle">
+            <span>Ativar notificações de spike</span>
+            <input type="checkbox" id="notificacoes_ativas" class="toggle" checked>
+          </label>
+        </div>
+
+        <div class="opt-group">
+          <label class="opt-label">Heat Score mínimo para notificar</label>
+          <div style="display:flex;align-items:center;gap:12px">
+            <input type="range" id="threshold_notificacao" min="30" max="95" value="60" style="width:200px">
+            <span id="threshold_val" style="font-weight:700;color:var(--c-accent)">60</span>
+          </div>
+        </div>
+
+        <div class="opt-group">
+          <label class="opt-label opt-label--toggle">
+            <span>Digest diário (resumo da Watchlist)</span>
+            <input type="checkbox" id="digest_diario" class="toggle">
+          </label>
+        </div>
+      </section>
+
+      <!-- Panther OS -->
+      <section id="tab-panther" class="opts-tab hidden">
+        <h2>Integração Panther OS</h2>
+        <p class="text-muted" style="font-size:13px;margin-bottom:var(--sp-5)">
+          Opcional. Sincroniza findings de ofertas escaladas com seu Panther OS via webhook.
+        </p>
+
+        <div class="opt-group">
+          <label class="opt-label">Endpoint Webhook</label>
+          <input id="panther_endpoint" type="url" class="input" placeholder="https://seu-panther.com/api/webhook">
+        </div>
+
+        <div class="opt-group">
+          <label class="opt-label">Token de autenticação (Bearer)</label>
+          <input id="panther_token" type="password" class="input" placeholder="sk_live_...">
+        </div>
+
+        <div style="display:flex;gap:var(--sp-3);margin-top:var(--sp-4)">
+          <button id="btn-test-panther" class="btn btn-ghost">Testar conexão</button>
+          <span id="panther-test-result" class="text-muted" style="font-size:13px;align-self:center"></span>
+        </div>
+      </section>
+
+      <!-- Dados -->
+      <section id="tab-dados" class="opts-tab hidden">
+        <h2>Gestão de Dados</h2>
+
+        <div class="opt-group">
+          <label class="opt-label">Retenção de dados históricos</label>
+          <select id="dias_retencao" class="input" style="max-width:200px">
+            <option value="30">30 dias</option>
+            <option value="60">60 dias</option>
+            <option value="90" selected>90 dias</option>
+            <option value="180">6 meses</option>
+            <option value="365">1 ano</option>
+          </select>
+        </div>
+
+        <div class="opt-group">
+          <label class="opt-label" style="color:var(--c-red)">Zona de perigo</label>
+          <div style="display:flex;gap:var(--sp-3);flex-wrap:wrap">
+            <button id="btn-export-backup" class="btn btn-ghost">⬇ Exportar backup</button>
+            <button id="btn-clear-recl" class="btn btn-ghost">🗑 Limpar reclamações antigas</button>
+            <button id="btn-clear-all" class="btn btn-danger">⚠ Apagar tudo</button>
+          </div>
+        </div>
+
+        <div id="dados-stats" class="dados-stats mt-4"></div>
+      </section>
+
+      <!-- Interface -->
+      <section id="tab-interface" class="opts-tab hidden">
+        <h2>Interface</h2>
+
+        <div class="opt-group">
+          <label class="opt-label">Tema</label>
+          <div class="theme-options">
+            <label class="theme-opt">
+              <input type="radio" name="tema" value="dark" checked>
+              <span>🌙 Escuro</span>
+            </label>
+            <label class="theme-opt">
+              <input type="radio" name="tema" value="light">
+              <span>☀️ Claro</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="opt-group">
+          <label class="opt-label opt-label--toggle">
+            <span>Mostrar badges nas listagens do RA</span>
+            <input type="checkbox" id="overlay_badges" class="toggle" checked>
+          </label>
+        </div>
+      </section>
+
+      <!-- Atualizações -->
+      <section id="tab-atualizacoes" class="opts-tab hidden">
+        <h2>Atualizações Automáticas</h2>
+        <p class="text-muted" style="font-size:13px;margin-bottom:var(--sp-5)">
+          Configure a URL onde o RA Miner verifica se há novas versões (a cada 6 horas).
+          Hospede um <code>version.json</code> no GitHub, Gist ou qualquer servidor.
+        </p>
+
+        <div class="opt-group">
+          <label class="opt-label">URL do arquivo version.json</label>
+          <input id="update_check_url" type="url" class="input"
+            placeholder="https://raw.githubusercontent.com/seu-usuario/repo/main/version.json"
+            style="max-width:520px">
+          <p class="opt-hint">
+            Exemplo com GitHub: crie o arquivo <code>version.json</code> na raiz do repositório
+            e cole a URL raw acima.
+          </p>
+        </div>
+
+        <!-- Status atual -->
+        <div class="update-status-box" id="update-status-box">
+          <div class="update-status-box__row">
+            <span class="text-muted">Versão instalada:</span>
+            <strong id="update-current-version">—</strong>
+          </div>
+          <div class="update-status-box__row">
+            <span class="text-muted">Status:</span>
+            <span id="update-status-text">Nunca verificado</span>
+          </div>
+          <div class="update-status-box__row" id="update-new-row" style="display:none">
+            <span class="text-muted">Nova versão:</span>
+            <strong id="update-new-version" class="text-accent">—</strong>
+          </div>
+        </div>
+
+        <!-- Notas da versão disponível -->
+        <div id="update-notes-box" class="update-notes-box hidden">
+          <div class="update-notes-box__title">O que há de novo:</div>
+          <pre id="update-notes-text" class="update-notes-text"></pre>
+        </div>
+
+        <!-- Ações -->
+        <div style="display:flex;gap:var(--sp-3);margin-top:var(--sp-5);flex-wrap:wrap;align-items:center">
+          <button id="btn-check-update"  class="btn btn-ghost">🔍 Verificar agora</button>
+          <button id="btn-simulate-upd"  class="btn btn-ghost" title="Simula uma atualização disponível para testar o sistema">🧪 Simular atualização</button>
+          <button id="btn-do-update"     class="btn btn-accent hidden">⬇ Baixar e instalar</button>
+          <button id="btn-dismiss-upd"   class="btn btn-ghost hidden">Dispensar</button>
+          <span   id="update-check-msg"  class="text-muted" style="font-size:12px"></span>
+        </div>
+
+        <div id="update-url-hint" class="update-url-hint hidden">
+          ⚠️ Nenhuma URL configurada acima. Sem URL, a extensão não consegue verificar atualizações automaticamente.
+          O botão <strong>Simular</strong> funciona mesmo sem URL — use para testar o fluxo.
+        </div>
+
+        <!-- Guia pós-download -->
+        <div id="update-install-guide" class="update-install-guide hidden">
+          <h4>✅ Download iniciado!</h4>
+          <p>O arquivo <code>ra-miner-update.zip</code> está sendo baixado para a pasta <strong>Downloads</strong>.</p>
+          <p>Siga estes 3 passos:</p>
+          <ol>
+            <li>Extraia o ZIP e <strong>substitua a pasta <code>dist/</code></strong> da extensão pelos arquivos extraídos</li>
+            <li>Acesse <a id="link-ext-page" href="#" class="update-link">chrome://extensions</a></li>
+            <li>Clique no ícone <strong>↺ (reload)</strong> ao lado do RA Miner</li>
+          </ol>
+          <p style="color:var(--c-green);font-weight:600">Pronto! A extensão será atualizada sem perder nenhum dado.</p>
+        </div>
+
+        <!-- Formato do version.json -->
+        <details style="margin-top:var(--sp-6)">
+          <summary class="text-muted" style="cursor:pointer;font-size:12px">Ver formato do version.json</summary>
+          <pre class="code-block" style="margin-top:var(--sp-3)">{
+  "version":     "1.2.0",
+  "releaseDate": "2026-05-10",
+  "notes":       "- Correção de bugs\n- Nova funcionalidade X",
+  "downloadUrl": "https://github.com/seu-usuario/ra-miner/releases/download/v1.2.0/ra-miner-dist.zip",
+  "changelogUrl":"https://github.com/seu-usuario/ra-miner/releases"
+}</pre>
+        </details>
+      </section>
+
+      <!-- Botão salvar -->
+      <div class="opts-footer">
+        <button id="btn-save" class="btn btn-primary">💾 Salvar configurações</button>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="options.js"></script>
+</body>
+</html>

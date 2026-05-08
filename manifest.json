@@ -1,0 +1,63 @@
+{
+  "manifest_version": 3,
+  "name": "RA Miner — Caçador de Ofertas Escaladas",
+  "version": "1.0.0",
+  "description": "Detecta e rankeia ofertas escaladas no Reclame Aqui via análise de velocidade de reclamações",
+  "default_locale": "pt_BR",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    },
+    "default_title": "RA Miner"
+  },
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.reclameaqui.com.br/*"],
+      "js": ["src/content/content-script.js"],
+      "css": ["src/content/overlay.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "side_panel": {
+    "default_path": "src/sidepanel/sidepanel.html"
+  },
+  "options_ui": {
+    "page": "src/options/options.html",
+    "open_in_tab": true
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/dashboard/dashboard.html",
+        "icons/*"
+      ],
+      "matches": ["chrome-extension://*/*"]
+    }
+  ],
+  "permissions": [
+    "storage",
+    "alarms",
+    "notifications",
+    "sidePanel",
+    "scripting",
+    "tabs",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://*.reclameaqui.com.br/*"
+  ]
+}
