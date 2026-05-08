@@ -9,8 +9,9 @@
  */
 import { detectPatterns, extractKeywords } from './analyzer.js'
 
-// Verbos e adjetivos típicos de reclamação — removidos do título para isolar o produto
+// Removidos do título para isolar o nome do produto
 const COMPLAINT_WORDS = new Set([
+  // Verbos de reclamação
   'nao','não','nunca','jamais','sem','falta','faltou',
   'recebi','chegou','veio','enviou','enviado','entregou','entregue','entregar',
   'comprei','paguei','comprado','comprou',
@@ -19,7 +20,7 @@ const COMPLAINT_WORDS = new Set([
   'cobrado','cobrou','cobranca','cobrança','cobraram',
   'resolveu','resolvido','resolveram','resolver',
   'respondeu','responderam','resposta','responder',
-  'funciona','funcionou','funcionando','funcionar','funcionou',
+  'funciona','funcionou','funcionando','funcionar',
   'problema','problemas','erro','erros','falha','falhas','defeito','defeitos',
   'reclamacao','reclamação','reclamacoes','reclamações','reclamar',
   'entrega','pedido','compra','order','encomenda','encomendas',
@@ -28,12 +29,26 @@ const COMPLAINT_WORDS = new Set([
   'atendimento','suporte','cliente','servico','serviço',
   'prazo','atraso','demora','atrasado','atrasada',
   'qualidade','quebrado','quebrada','danificado','danificada',
-  'diferente','diferente','errado','errada','incorreto','incorreta',
+  'diferente','errado','errada','incorreto','incorreta',
   'falsificado','falsificada','falso','falsa','replica',
   'site','loja','plataforma','aplicativo','app','sistema',
-  'absurdo','péssimo','pessimo','horrivel','horrível','vergonha',
-  'urgente','urgente','atenção','atencao','ajuda','help',
+  'absurdo','pessimo','péssimo','horrivel','horrível','vergonha',
+  'urgente','atencao','atenção','ajuda','help',
   'via','desde','ainda','mais','muito','pouco',
+  // Verbos de falha física de produto
+  'parou','quebrou','soltou','caiu','sumiu','travou','travado','travada','bugou',
+  'parada','parado','caindo','soltando','quebrando','travando','desligou','desliga',
+  'esquentou','aquecendo','superaqueceu',
+  'sincroniza','sincronizar','conectar','conecta','carrega','carregar','ligar','acessar',
+  // Partes/componentes do produto (não são o nome do produto)
+  'tela','bateria','carregador','cabo','caixa','embalagem','capa','tampa',
+  'botao','botoes','botões','sensor','sensores','pulseira','alca','alça','correia',
+  'solado','ziper','zipper','costura','costuras','tecido','material',
+  // Descritivos genéricos e temporais
+  'sozinha','sozinho','normal','somente','apenas','todo','tuda','hora','vez',
+  'vezes','dias','horas','meses','semanas','primeiro','segunda','terceiro',
+  'inicial','unica','único','completo','completa','incompleto',
+  'arranhado','arranhada','amassado','amassada','violada','violado','celular',
 ])
 
 const STOPWORDS = new Set([
