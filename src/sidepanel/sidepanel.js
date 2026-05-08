@@ -87,11 +87,11 @@ async function loadAnalysis(slug) {
     const res = await send('GET_ANALYSIS', { slug })
     if (!res?.ok || !res.data) { setState('nopage'); return }
 
-    const { empresa, heatScore, spike, keywords, patterns, salesEst, snapshots } = res.data
+    const { empresa, heatScore, spike, keywords, patterns, salesEst, snapshots, offers } = res.data
     const watchRes = await send('IS_WATCHLIST', { empresaId: empresa.id })
     isInWatchlist  = watchRes?.data || false
 
-    render({ empresa, heatScore, spike, keywords, patterns, salesEst, snapshots })
+    render({ empresa, heatScore, spike, keywords, patterns, salesEst, snapshots, offers })
     setState('content')
     updateWatchlistBtn()
   } catch (err) {
@@ -100,7 +100,7 @@ async function loadAnalysis(slug) {
   }
 }
 
-function render({ empresa, heatScore, spike, keywords, patterns, salesEst, snapshots }) {
+function render({ empresa, heatScore, spike, keywords, patterns, salesEst, snapshots, offers }) {
   const { emoji, tag, css } = getHeatTag(heatScore)
   const nicho = getNichoInfo(empresa.nicho_inferido || 'outros')
 
@@ -146,6 +146,9 @@ function render({ empresa, heatScore, spike, keywords, patterns, salesEst, snaps
     <span class="keyword" style="font-size:${Math.min(16, 10 + k.count / 2)}px">${k.word}</span>
   `).join('')
 
+  // Ofertas problemáticas
+  renderOffers(offers || [])
+
   // Estimativa de vendas
   $('sales-min').textContent = formatNumber(salesEst.min)
   $('sales-mid').textContent = formatNumber(salesEst.mid)
@@ -153,6 +156,74 @@ function render({ empresa, heatScore, spike, keywords, patterns, salesEst, snaps
 
   // Sparkline
   renderSparkline(snapshots)
+}
+
+function renderOffers(offers) {
+  const list  = $('offers-list')
+  const badge = $('offers-count-badge')
+
+  if (!offers.length) {
+    $('section-offers').classList.add('hidden')
+    return
+  }
+
+  $('section-offers').classList.remove('hidden')
+  badge.textContent = `${offers.length} oferta${offers.length > 1 ? 's' : ''}`
+
+  list.innerHTML = offers.map(offer => {
+    const accelHtml = offer.aceleracao > 0
+      ? `<span class="offer-accel offer-accel--up">▲ +${offer.aceleracao}%</span>`
+      : offer.aceleracao < 0
+        ? `<span class="offer-accel offer-accel--down">▼ ${offer.aceleracao}%</span>`
+        : ''
+
+    const topPadrao = offer.padroes[0]
+    const padroesHtml = topPadrao
+      ? `<span class="offer-pattern">${topPadrao.label} <span class="offer-pattern__pct">${topPadrao.pct}%</span></span>`
+      : ''
+
+    const kwHtml = offer.keywords.slice(0, 4)
+      .map(k => `<span class="offer-kw">${k.word}</span>`)
+      .join('')
+
+    const lastDate = offer.ultimaReclamacao
+      ? _relativeDate(offer.ultimaReclamacao)
+      : ''
+
+    const scoreClass = offer.score >= 70 ? 'offer-score--high'
+                     : offer.score >= 40 ? 'offer-score--mid'
+                     : 'offer-score--low'
+
+    return `
+      <div class="offer-card">
+        <div class="offer-card__header">
+          <span class="offer-card__name" title="${offer.variantes.join(' / ')}">${offer.nome}</span>
+          <span class="offer-score ${scoreClass}">${offer.score}</span>
+        </div>
+        <div class="offer-card__meta">
+          <span class="offer-count">${offer.count} recl.</span>
+          <span class="offer-velocity">${offer.velocidade}/dia</span>
+          ${accelHtml}
+          ${lastDate ? `<span class="offer-date text-muted">${lastDate}</span>` : ''}
+        </div>
+        ${padroesHtml || kwHtml ? `
+        <div class="offer-card__tags">
+          ${padroesHtml}
+          ${kwHtml}
+        </div>` : ''}
+      </div>
+    `
+  }).join('')
+}
+
+function _relativeDate(iso) {
+  const diff = Date.now() - new Date(iso).getTime()
+  const days = Math.floor(diff / 86_400_000)
+  if (days === 0) return 'hoje'
+  if (days === 1) return 'ontem'
+  if (days < 30)  return `${days}d atrás`
+  if (days < 365) return `${Math.floor(days / 30)}m atrás`
+  return `${Math.floor(days / 365)}a atrás`
 }
 
 function renderSparkline(snapshots) {

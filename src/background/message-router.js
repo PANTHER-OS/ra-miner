@@ -10,6 +10,7 @@ import {
 } from '../lib/storage.js'
 import { calcHeatScore } from '../lib/scoring.js'
 import { detectSpike, extractKeywords, detectPatterns, estimateSalesVolume } from '../lib/analyzer.js'
+import { detectOffers } from '../lib/offer-detector.js'
 import { syncWithPanther } from '../lib/sync-panther.js'
 import { setupAlarms } from './alarms.js'
 import { checkForUpdate, getUpdateInfo, dismissUpdate, downloadUpdate } from '../lib/updater.js'
@@ -43,7 +44,8 @@ const HANDLERS = {
     const keywords     = extractKeywords(reclamacoes)
     const patterns     = detectPatterns(reclamacoes)
     const salesEst     = estimateSalesVolume(empresa.total_reclamacoes || 0)
-    return { empresa, heatScore, spike, keywords, patterns, salesEst, snapshots }
+    const offers       = detectOffers(reclamacoes, { topN: 8 })
+    return { empresa, heatScore, spike, keywords, patterns, salesEst, snapshots, offers }
   },
 
   // --- Watchlist ---
