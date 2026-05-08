@@ -31,7 +31,7 @@ const DEFAULTS = {
   dias_retencao:          '90',
   overlay_badges:         true,
   tema:                   'dark',
-  update_check_url:       '',
+  update_check_url: 'https://raw.githubusercontent.com/PANTHER-OS/ra-miner/main/version.json',
 }
 
 // --- Tabs ---

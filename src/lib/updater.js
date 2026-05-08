@@ -21,7 +21,8 @@ import { getConfig } from './storage.js'
 const STORAGE_KEY = 'update_available'
 
 export async function checkForUpdate() {
-  const url = await getConfig('update_check_url', '')
+  const DEFAULT_URL = 'https://raw.githubusercontent.com/PANTHER-OS/ra-miner/main/version.json'
+  const url = await getConfig('update_check_url', DEFAULT_URL)
   if (!url) return null
 
   try {
