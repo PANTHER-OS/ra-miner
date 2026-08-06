@@ -13,6 +13,7 @@ import { Minus, Plus, RotateCcw } from "lucide-react";
 import type { Country } from "@/lib/countries";
 import { getPtName } from "@/lib/countries";
 import type { PassportStatus } from "@/lib/passport";
+import { getCitiesForCountry, type CityEntry } from "@/lib/cities";
 
 const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
@@ -27,10 +28,20 @@ const MAX_ZOOM = 8;
 // torto ao redefinir) em qualquer tela, celular ou desktop.
 const HOME_CENTER: [number, number] = [0, 0];
 
+// Cidades do país selecionado só aparecem a partir de um certo zoom — e
+// mais delas conforme se aproxima mais — pra imitar a sensação natural de
+// "ir chegando perto" de um mapa físico, em vez de despejar tudo de uma vez.
+const CITY_REVEAL_ZOOM = 2.6;
+const CITY_REVEAL_ZOOM_FULL = 5;
+const CITY_COUNT_FIRST = 4;
+const CITY_COUNT_FULL = 8;
+
 interface Props {
   countries: Country[];
   selectedCode: string | null;
   onSelect: (c: Country | null) => void;
+  onSelectCity?: (city: CityEntry) => void;
+  focusCity?: { lat: number; lng: number; nonce: number } | null;
   filterRegion: string; // "all" | region
   statusMap?: Map<string, PassportStatus>;
   verifiedSet?: Set<string>;
@@ -47,6 +58,8 @@ function WorldMapInner({
   countries,
   selectedCode,
   onSelect,
+  onSelectCity,
+  focusCity,
   filterRegion,
   statusMap,
   verifiedSet,
@@ -55,6 +68,7 @@ function WorldMapInner({
   const [zoom, setZoom] = useState(1);
   const [center, setCenter] = useState<[number, number]>(HOME_CENTER);
   const [hovered, setHovered] = useState<Country | null>(null);
+  const [hoveredCity, setHoveredCity] = useState<CityEntry | null>(null);
   const [ready, setReady] = useState(false);
   // O ZoomableGroup calcula a posição inicial a partir do tamanho REAL do
   // container no momento em que monta. Se as fontes (Google Fonts, via
@@ -123,6 +137,14 @@ function WorldMapInner({
     setZoom((z) => Math.max(z, 3.2));
   }, [selectedCountry]);
 
+  // Foco numa cidade específica (via busca ou clique num marcador) — voa
+  // pra mais perto dela, além do zoom de país já aplicado acima.
+  useEffect(() => {
+    if (!focusCity) return;
+    setCenter([focusCity.lng, focusCity.lat]);
+    setZoom((z) => Math.max(z, 6));
+  }, [focusCity]);
+
   const atHome = zoom === 1 && center[0] === HOME_CENTER[0] && center[1] === HOME_CENTER[1];
 
   const reset = () => {
@@ -172,6 +194,28 @@ function WorldMapInner({
     },
     [onSelect],
   );
+
+  const handleEnterCity = useCallback((c: CityEntry) => {
+    setHoveredCity(c);
+    setHovered(null);
+  }, []);
+  const handleLeaveCity = useCallback(() => setHoveredCity(null), []);
+  const handleClickCity = useCallback(
+    (c: CityEntry) => {
+      onSelectCity?.(c);
+    },
+    [onSelectCity],
+  );
+
+  // Cidades do país selecionado, reveladas progressivamente conforme o
+  // zoom aumenta — só recalcula quando o país selecionado ou o zoom mudam.
+  const citiesToShow = useMemo<CityEntry[]>(() => {
+    if (!selectedCountry || zoom < CITY_REVEAL_ZOOM) return [];
+    const all = getCitiesForCountry(selectedCountry.cca2);
+    if (!all.length) return [];
+    const n = zoom >= CITY_REVEAL_ZOOM_FULL ? CITY_COUNT_FULL : CITY_COUNT_FIRST;
+    return all.slice(0, n);
+  }, [selectedCountry, zoom]);
 
   // Todo o conteúdo do SVG (esferas, meridianos, países) fica memoizado à
   // parte: só recalcula quando algo que realmente muda a pintura do mapa
@@ -302,6 +346,52 @@ function WorldMapInner({
             <circle r={2.4 / zoom} fill="var(--map-selected)" />
           </Marker>
         )}
+
+        {/* Cidades do país selecionado — reveladas aos poucos conforme o
+            zoom aumenta, cada uma "entrando" com uma animação suave. */}
+        <AnimatePresence>
+          {citiesToShow.map((c, i) => (
+            <Marker key={`${c.name}-${c.lat}`} coordinates={[c.lng, c.lat]}>
+              <motion.g
+                initial={{ opacity: 0, scale: 0.3 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.3 }}
+                transition={{ delay: i * 0.05, type: "spring", stiffness: 320, damping: 22 }}
+                onMouseEnter={() => handleEnterCity(c)}
+                onMouseLeave={handleLeaveCity}
+                onClick={() => handleClickCity(c)}
+                style={{ cursor: "pointer" }}
+              >
+                <circle
+                  r={(c.capital ? 5 : 3.6) / zoom}
+                  fill={c.capital ? "var(--map-selected)" : "oklch(0.86 0.15 85)"}
+                  stroke="oklch(0.14 0.02 260)"
+                  strokeWidth={1.1 / zoom}
+                />
+                <circle
+                  r={(c.capital ? 9 : 7) / zoom}
+                  fill="none"
+                  stroke={c.capital ? "var(--map-selected)" : "oklch(0.86 0.15 85)"}
+                  strokeWidth={0.8 / zoom}
+                  opacity={0.35}
+                />
+                <text
+                  textAnchor="middle"
+                  y={-9 / zoom}
+                  fontSize={9.5 / zoom}
+                  fontWeight={600}
+                  fill="oklch(0.97 0.015 90)"
+                  stroke="oklch(0.1 0.02 260)"
+                  strokeWidth={2.4 / zoom}
+                  paintOrder="stroke"
+                  style={{ pointerEvents: "none" }}
+                >
+                  {c.name}
+                </text>
+              </motion.g>
+            </Marker>
+          ))}
+        </AnimatePresence>
       </>
     );
   }, [
@@ -318,6 +408,10 @@ function WorldMapInner({
     handleEnterCountry,
     handleLeaveCountry,
     handleClickCountry,
+    citiesToShow,
+    handleEnterCity,
+    handleLeaveCity,
+    handleClickCity,
   ]);
 
   return (
@@ -458,7 +552,25 @@ function WorldMapInner({
         style={{ willChange: "transform" }}
       >
         <AnimatePresence>
-          {hovered && (
+          {hoveredCity && (
+            <motion.div
+              key={`city-${hoveredCity.name}`}
+              initial={{ opacity: 0, y: 4, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 4, scale: 0.96 }}
+              transition={{ duration: 0.12 }}
+              className="flex items-center gap-2 rounded-xl border border-border bg-surface-elevated/95 px-3 py-2 text-xs shadow-panel backdrop-blur"
+            >
+              <span className="font-medium text-foreground">{hoveredCity.name}</span>
+              {hoveredCity.capital && (
+                <span className="rounded-full bg-primary/20 px-1.5 py-0.5 text-[9px] font-semibold text-primary">
+                  capital
+                </span>
+              )}
+              <span className="text-muted-foreground">· toque para ver atrações</span>
+            </motion.div>
+          )}
+          {!hoveredCity && hovered && (
             <motion.div
               key={hovered.cca2}
               initial={{ opacity: 0, y: 4, scale: 0.96 }}
