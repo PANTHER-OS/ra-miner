@@ -18,7 +18,14 @@ const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json"
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 8;
-const HOME_CENTER: [number, number] = [15, 15];
+// [0, 0] (Greenwich/equador) é o único ponto que a projeção já posiciona
+// exatamente no centro geométrico da viewBox (400, 300 numa caixa de
+// 800x600), sem precisar de nenhum deslocamento extra. Qualquer outro valor
+// aqui (ex: [15, 15], usado antes) faz o ZoomableGroup recalcular um
+// deslocamento em pixels para "puxar" aquele ponto até o centro — e esse
+// deslocamento quebra a simetria do globo, fazendo-o nascer torto (e voltar
+// torto ao redefinir) em qualquer tela, celular ou desktop.
+const HOME_CENTER: [number, number] = [0, 0];
 
 interface Props {
   countries: Country[];
