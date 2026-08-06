@@ -48,9 +48,10 @@ function WorldMapInner({
   const [zoom, setZoom] = useState(1);
   const [center, setCenter] = useState<[number, number]>(HOME_CENTER);
   const [hovered, setHovered] = useState<Country | null>(null);
-  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
   const [ready, setReady] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const tooltipAnchorRef = useRef<HTMLDivElement>(null);
+  const rectRef = useRef<DOMRect | null>(null);
 
   // Fast lookup by numeric code
   const byCcn3 = useMemo(() => {
@@ -94,21 +95,198 @@ function WorldMapInner({
   const zoomIn = () => setZoom((z) => Math.min(z * 1.6, MAX_ZOOM));
   const zoomOut = () => setZoom((z) => Math.max(z / 1.6, MIN_ZOOM));
 
-  const handleMove = (e: React.MouseEvent) => {
-    if (!hovered || !wrapRef.current) return;
-    const r = wrapRef.current.getBoundingClientRect();
-    setTooltipPos({ x: e.clientX - r.left, y: e.clientY - r.top });
-  };
-
   // Traços finos e constantes em qualquer nível de zoom.
   const hair = 0.5 / zoom;
+
+  // --- Tooltip: posição via DOM direto, sem tocar no estado do React a cada
+  // pixel do mouse. Isso é o que fazia o mapa inteiro ser reconstruído em
+  // todo movimento — a causa principal da travada ao passar o mouse. ---
+  const refreshRect = useCallback(() => {
+    if (wrapRef.current) rectRef.current = wrapRef.current.getBoundingClientRect();
+  }, []);
+
+  useEffect(() => {
+    refreshRect();
+    window.addEventListener("resize", refreshRect);
+    return () => window.removeEventListener("resize", refreshRect);
+  }, [refreshRect]);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    const anchor = tooltipAnchorRef.current;
+    if (!anchor) return;
+    const r = rectRef.current;
+    if (!r) return;
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    const left = Math.min(x + 14, r.width - 220);
+    const top = Math.max(y - 44, 8);
+    anchor.style.transform = `translate3d(${left}px, ${top}px, 0)`;
+  }, []);
+
+  const handleEnterCountry = useCallback((c: Country | undefined) => {
+    if (c) setHovered(c);
+  }, []);
+  const handleLeaveCountry = useCallback(() => setHovered(null), []);
+  const handleClickCountry = useCallback(
+    (c: Country | undefined) => {
+      if (c) onSelect(c);
+    },
+    [onSelect],
+  );
+
+  // Todo o conteúdo do SVG (esferas, meridianos, países) fica memoizado à
+  // parte: só recalcula quando algo que realmente muda a pintura do mapa
+  // muda — não a cada hover ou movimento do mouse.
+  const mapContent = useMemo(() => {
+    return (
+      <>
+        <Sphere
+          id="mef-sphere"
+          fill="url(#mef-ocean)"
+          stroke="oklch(0.62 0.09 240 / 0.4)"
+          strokeWidth={hair * 1.4}
+        />
+        <Graticule
+          step={[20, 20]}
+          stroke="oklch(0.75 0.03 240 / 0.10)"
+          strokeWidth={hair * 0.8}
+          fill="none"
+        />
+        <Graticule
+          step={[360, 90]}
+          stroke="oklch(0.82 0.14 78 / 0.14)"
+          strokeWidth={hair * 1.2}
+          fill="none"
+        />
+
+        <Geographies geography={GEO_URL}>
+          {({ geographies }: { geographies: GeoFeature[] }) => {
+            if (geographies.length && !ready) queueMicrotask(() => setReady(true));
+            return geographies.map((geo) => {
+              const country = byCcn3.get(String(Number(geo.id)));
+              const dimmed = isFiltered(country);
+              const isSelected = country?.cca2 === selectedCode;
+              const status = country && statusMap ? statusMap.get(country.cca2) : "none";
+              const verified = Boolean(country && verifiedSet?.has(country.cca2));
+
+              const baseFill = verified
+                ? "var(--map-verified)"
+                : status === "visited"
+                  ? "var(--map-visited)"
+                  : status === "wishlist"
+                    ? "var(--map-wishlist)"
+                    : "url(#mef-land)";
+
+              const hoverFill = isSelected
+                ? "var(--map-selected)"
+                : verified
+                  ? "var(--map-verified)"
+                  : status === "visited"
+                    ? "var(--map-visited)"
+                    : status === "wishlist"
+                      ? "var(--map-wishlist)"
+                      : "var(--map-land-hover)";
+
+              // Só o país selecionado ganha um contorno em destaque — sem
+              // filtro de sombra (blur), é caro demais de repintar durante
+              // arraste/zoom em qualquer dispositivo, principalmente no
+              // celular. Verificado/visitado já se distinguem bem só pela cor.
+              const strokeColor = isSelected
+                ? "var(--map-selected)"
+                : verified
+                  ? "var(--map-verified)"
+                  : "var(--map-stroke)";
+              const strokeW = isSelected ? hair * 2.4 : verified ? hair * 1.4 : hair;
+
+              return (
+                <Geography
+                  key={geo.rsmKey}
+                  geography={geo}
+                  onMouseEnter={() => handleEnterCountry(country)}
+                  onMouseLeave={handleLeaveCountry}
+                  onClick={() => handleClickCountry(country)}
+                  style={{
+                    default: {
+                      fill: baseFill,
+                      stroke: strokeColor,
+                      strokeWidth: strokeW,
+                      strokeLinejoin: "round",
+                      outline: "none",
+                      transition: "fill 0.2s ease, opacity 0.2s ease",
+                      cursor: country ? "pointer" : "default",
+                      opacity: dimmed ? 0.28 : 1,
+                    },
+                    hover: {
+                      fill: hoverFill,
+                      stroke: "var(--map-selected)",
+                      strokeWidth: hair * 1.8,
+                      strokeLinejoin: "round",
+                      outline: "none",
+                      cursor: "pointer",
+                    },
+                    pressed: {
+                      fill: "var(--map-selected)",
+                      outline: "none",
+                    },
+                  }}
+                  aria-label={country ? getPtName(country) : undefined}
+                  tabIndex={-1}
+                />
+              );
+            });
+          }}
+        </Geographies>
+
+        {/* Alfinete pulsante no país selecionado */}
+        {selectedCountry?.latlng && (
+          <Marker coordinates={[selectedCountry.latlng[1], selectedCountry.latlng[0]]}>
+            <circle
+              r={9 / zoom}
+              fill="none"
+              stroke="var(--map-selected)"
+              strokeWidth={1.4 / zoom}
+              opacity={0.9}
+            >
+              <animate
+                attributeName="r"
+                values={`${4 / zoom};${13 / zoom}`}
+                dur="1.8s"
+                repeatCount="indefinite"
+              />
+              <animate
+                attributeName="opacity"
+                values="0.85;0"
+                dur="1.8s"
+                repeatCount="indefinite"
+              />
+            </circle>
+            <circle r={2.4 / zoom} fill="var(--map-selected)" />
+          </Marker>
+        )}
+      </>
+    );
+  }, [
+    byCcn3,
+    countries,
+    hair,
+    isFiltered,
+    ready,
+    selectedCode,
+    selectedCountry,
+    statusMap,
+    verifiedSet,
+    zoom,
+    handleEnterCountry,
+    handleLeaveCountry,
+    handleClickCountry,
+  ]);
 
   return (
     <div className="w-full">
     <div
-
       ref={wrapRef}
-      onMouseMove={handleMove}
+      onPointerEnter={refreshRect}
+      onPointerMove={handlePointerMove}
       className="group/map relative aspect-[16/10] w-full touch-none overflow-hidden rounded-3xl border border-border bg-[color:var(--map-ocean)] shadow-panel [&_svg]:touch-none"
       style={{ touchAction: "none", overscrollBehavior: "contain" }}
     >
@@ -129,15 +307,6 @@ function WorldMapInner({
             <stop offset="0%" stopColor="oklch(0.42 0.024 255)" />
             <stop offset="100%" stopColor="oklch(0.33 0.02 258)" />
           </linearGradient>
-          <filter id="mef-coast" x="-20%" y="-20%" width="140%" height="140%">
-            <feDropShadow
-              dx="0"
-              dy="0"
-              stdDeviation="1.4"
-              floodColor="oklch(0.62 0.09 240)"
-              floodOpacity="0.35"
-            />
-          </filter>
         </defs>
 
         <ZoomableGroup
@@ -154,130 +323,7 @@ function WorldMapInner({
             [800, 600],
           ]}
         >
-          {/* Globo (oceano) */}
-          <Sphere
-            id="mef-sphere"
-            fill="url(#mef-ocean)"
-            stroke="oklch(0.62 0.09 240 / 0.35)"
-            strokeWidth={hair * 1.6}
-            filter="url(#mef-coast)"
-          />
-          {/* Meridianos e paralelos */}
-          <Graticule
-            step={[20, 20]}
-            stroke="oklch(0.75 0.03 240 / 0.10)"
-            strokeWidth={hair * 0.8}
-            fill="none"
-          />
-          {/* Equador em destaque */}
-          <Graticule
-            step={[360, 90]}
-            stroke="oklch(0.82 0.14 78 / 0.14)"
-            strokeWidth={hair * 1.2}
-            fill="none"
-          />
-
-          <Geographies geography={GEO_URL}>
-            {({ geographies }: { geographies: GeoFeature[] }) => {
-              if (geographies.length && !ready) queueMicrotask(() => setReady(true));
-              return geographies.map((geo) => {
-                const country = byCcn3.get(String(Number(geo.id)));
-                const dimmed = isFiltered(country);
-                const isSelected = country?.cca2 === selectedCode;
-                const status = country && statusMap ? statusMap.get(country.cca2) : "none";
-                const verified = Boolean(country && verifiedSet?.has(country.cca2));
-
-                const baseFill = verified
-                  ? "var(--map-verified)"
-                  : status === "visited"
-                    ? "var(--map-visited)"
-                    : status === "wishlist"
-                      ? "var(--map-wishlist)"
-                      : "url(#mef-land)";
-
-                const defaultFilter = isSelected
-                  ? "drop-shadow(0 0 6px oklch(0.82 0.14 78 / 0.85))"
-                  : verified
-                    ? "drop-shadow(0 0 7px oklch(0.88 0.17 85 / 0.8))"
-                    : status === "visited"
-                      ? "drop-shadow(0 0 4px oklch(0.82 0.14 78 / 0.5))"
-                      : "none";
-
-                return (
-                  <Geography
-                    key={geo.rsmKey}
-                    geography={geo}
-                    onMouseEnter={() => country && setHovered(country)}
-                    onMouseLeave={() => setHovered(null)}
-                    onClick={() => country && onSelect(country)}
-                    style={{
-                      default: {
-                        fill: isSelected ? "var(--map-selected)" : baseFill,
-                        stroke: "var(--map-stroke)",
-                        strokeWidth: hair,
-                        strokeLinejoin: "round",
-                        outline: "none",
-                        transition: "fill 0.25s ease, filter 0.25s ease, opacity 0.25s ease",
-                        filter: defaultFilter,
-                        cursor: country ? "pointer" : "default",
-                        opacity: dimmed ? 0.28 : 1,
-                      },
-                      hover: {
-                        fill: isSelected
-                          ? "var(--map-selected)"
-                          : verified
-                            ? "var(--map-verified)"
-                            : status === "visited"
-                              ? "var(--map-visited)"
-                              : status === "wishlist"
-                                ? "var(--map-wishlist)"
-                                : "var(--map-land-hover)",
-                        stroke: "var(--map-selected)",
-                        strokeWidth: hair * 2,
-                        strokeLinejoin: "round",
-                        outline: "none",
-                        filter: "drop-shadow(0 0 8px oklch(0.82 0.14 78 / 0.7))",
-                        cursor: "pointer",
-                      },
-                      pressed: {
-                        fill: "var(--map-selected)",
-                        outline: "none",
-                      },
-                    }}
-                    aria-label={country ? getPtName(country) : undefined}
-                    tabIndex={-1}
-                  />
-                );
-              });
-            }}
-          </Geographies>
-
-          {/* Alfinete pulsante no país selecionado */}
-          {selectedCountry?.latlng && (
-            <Marker coordinates={[selectedCountry.latlng[1], selectedCountry.latlng[0]]}>
-              <circle
-                r={9 / zoom}
-                fill="none"
-                stroke="var(--map-selected)"
-                strokeWidth={1.4 / zoom}
-                opacity={0.9}
-              >
-                <animate
-                  attributeName="r"
-                  values={`${4 / zoom};${13 / zoom}`}
-                  dur="1.8s"
-                  repeatCount="indefinite"
-                />
-                <animate
-                  attributeName="opacity"
-                  values="0.85;0"
-                  dur="1.8s"
-                  repeatCount="indefinite"
-                />
-              </circle>
-              <circle r={2.4 / zoom} fill="var(--map-selected)" />
-            </Marker>
-          )}
+          {mapContent}
         </ZoomableGroup>
       </ComposableMap>
 
@@ -291,7 +337,6 @@ function WorldMapInner({
           background:
             "radial-gradient(ellipse 70% 55% at 50% 0%, oklch(0.82 0.14 78 / 0.05), transparent 65%)",
         }}
-
       />
 
       {/* Skeleton de carregamento */}
@@ -358,42 +403,44 @@ function WorldMapInner({
         <LegendDot color="var(--map-wishlist)" label="quero ir" />
       </div>
 
-
       {/* Dica de navegação */}
       <div className="pointer-events-none absolute bottom-3 right-3 hidden rounded-full border border-border bg-surface/60 px-2.5 py-1 text-[10px] text-muted-foreground/80 backdrop-blur sm:block">
         arraste para mover · role para dar zoom
       </div>
 
-      {/* Tooltip de hover */}
-      <AnimatePresence>
-        {hovered && tooltipPos && (
-          <motion.div
-            key={hovered.cca2}
-            initial={{ opacity: 0, y: 4, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 4, scale: 0.96 }}
-            transition={{ duration: 0.12 }}
-            style={{
-              left: Math.min(tooltipPos.x + 14, (wrapRef.current?.clientWidth ?? 0) - 220),
-              top: Math.max(tooltipPos.y - 44, 8),
-            }}
-            className="pointer-events-none absolute z-20 flex items-center gap-2 rounded-xl border border-border bg-surface-elevated/95 px-3 py-2 text-xs shadow-panel backdrop-blur"
-          >
-            <img
-              src={hovered.flags.svg}
-              alt=""
-              className="h-4 w-6 rounded-sm object-cover ring-1 ring-border"
-            />
-            <span className="font-medium text-foreground">{getPtName(hovered)}</span>
-            {verifiedSet?.has(hovered.cca2) && (
-              <span className="rounded-full bg-primary/20 px-1.5 py-0.5 text-[9px] font-semibold text-primary">
-                ✓
-              </span>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Âncora da tooltip: só o transform é atualizado a cada mousemove,
+          via DOM direto — nada disso passa pelo estado do React. */}
+      <div
+        ref={tooltipAnchorRef}
+        className="pointer-events-none absolute left-0 top-0 z-20"
+        style={{ willChange: "transform" }}
+      >
+        <AnimatePresence>
+          {hovered && (
+            <motion.div
+              key={hovered.cca2}
+              initial={{ opacity: 0, y: 4, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 4, scale: 0.96 }}
+              transition={{ duration: 0.12 }}
+              className="flex items-center gap-2 rounded-xl border border-border bg-surface-elevated/95 px-3 py-2 text-xs shadow-panel backdrop-blur"
+            >
+              <img
+                src={hovered.flags.svg}
+                alt=""
+                className="h-4 w-6 rounded-sm object-cover ring-1 ring-border"
+              />
+              <span className="font-medium text-foreground">{getPtName(hovered)}</span>
+              {verifiedSet?.has(hovered.cca2) && (
+                <span className="rounded-full bg-primary/20 px-1.5 py-0.5 text-[9px] font-semibold text-primary">
+                  ✓
+                </span>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
+    </div>
 
       {/* Legenda no celular, abaixo do mapa */}
       <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground sm:hidden">
@@ -404,7 +451,6 @@ function WorldMapInner({
       </div>
     </div>
   );
-
 }
 
 function LegendDot({ color, label, glow }: { color: string; label: string; glow?: boolean }) {
