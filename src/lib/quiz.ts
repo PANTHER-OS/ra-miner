@@ -258,20 +258,39 @@ export function computeResults(answers: Answers): QuizResult[] {
     }
   }
 
-  // 2) Score = soma(peso_usuario * score_pais / 10) para cada dimensão
+  // 2) Similaridade de cosseno entre o perfil do usuário e cada país.
+  //
+  // Por que cosseno e não soma direta: a soma direta recompensava só as
+  // dimensões que o usuário marcou positivamente, e nunca dava crédito de
+  // verdade quando um país tinha nota BAIXA numa dimensão que o usuário
+  // rejeitou (ex.: quem pediu "frio" contra um país quente só deixava de
+  // ganhar pontos ali, em vez de ganhar pontos por acertar o clima).
+  // Resultado: destinos com nota alta em quase tudo (Tailândia, Indonésia)
+  // dominavam o ranking de qualquer combinação de respostas, porque a soma
+  // crescia com "quantas coisas boas o país tem", não com "o quanto o
+  // padrão do país bate com o que a pessoa pediu".
+  //
+  // Centralizando a nota do país em torno do neutro (5 → 0, numa escala de
+  // -5 a +5, no mesmo sentido dos pesos do usuário) e comparando os dois
+  // vetores por ângulo (cosseno) em vez de soma bruta, um país só pontua
+  // bem se o FORMATO do seu perfil combina com o da pessoa — nota baixa
+  // numa dimensão rejeitada agora conta a favor, e nota alta em dimensões
+  // que a pessoa nem mencionou deixa de inflar o resultado à toa.
+  const dims = Object.keys(userWeights).filter((d) => userWeights[d] !== 0);
+  const userNorm = Math.sqrt(dims.reduce((sum, d) => sum + userWeights[d] ** 2, 0)) || 1;
+
   const scored = PROFILES.map((p) => {
-    let raw = 0;
-    let maxPossible = 0;
-    for (const [dim, weight] of Object.entries(userWeights)) {
-      const paisScore = (p.scores as Record<string, number>)[dim] ?? 5; // neutro se não definido
-      raw += weight * (paisScore / 10);
-      maxPossible += Math.abs(weight); // teto se país tirasse 10 em tudo
-    }
-    // normaliza 0-100
-    const pct = maxPossible > 0
-      ? Math.round(((raw + maxPossible) / (2 * maxPossible)) * 100)
-      : 50;
-    return { profile: p, score: raw, matchPct: Math.max(0, Math.min(100, pct)) };
+    const countryVec = dims.map((d) => ((p.scores as Record<string, number>)[d] ?? 5) - 5);
+    const countryNorm = Math.sqrt(countryVec.reduce((s, v) => s + v * v, 0)) || 1;
+
+    let dot = 0;
+    dims.forEach((d, i) => {
+      dot += userWeights[d] * countryVec[i];
+    });
+
+    const cosine = dims.length ? dot / (userNorm * countryNorm) : 0; // -1..1
+    const matchPct = Math.round(((cosine + 1) / 2) * 100);
+    return { profile: p, score: cosine, matchPct: Math.max(0, Math.min(100, matchPct)) };
   });
 
   scored.sort((a, b) => b.score - a.score);
