@@ -65,6 +65,36 @@ function cityMarkerColor(c: { capital?: boolean; landmark?: boolean }): string {
   return "oklch(0.86 0.15 85)"; // dourado claro — cidade comum
 }
 
+// world-atlas@2 em resolução 110m — a que dá pra manter o mapa leve — não
+// tem forma própria pra dezenas de territórios pequenos demais (Mônaco,
+// Liechtenstein, San Marino, Andorra, Malta, várias ilhas do Caribe e do
+// Pacífico...). Sem forma, não tem como clicar: o polígono simplesmente não
+// existe no arquivo, então o clique nunca acerta nada ali. A solução é um
+// alfinete "de reserva", com a mesma cor de bandeira do país, plantado
+// exatamente nas coordenadas do país — clicável mesmo sem forma nenhuma por
+// baixo. Descoberto comparando ao vivo os países carregados contra os IDs
+// que realmente vêm na topologia (ver setPresentCcn3 abaixo).
+const COUNTRY_PIN_REVEAL_ZOOM = 1.6;
+const COUNTRY_PIN_COLOR = "oklch(0.75 0.13 220)"; // azul — distingue de cidade (dourado) e marco natural (verde)
+
+interface CountryPin {
+  country: Country;
+  lat: number;
+  lng: number;
+  px: number;
+  py: number;
+}
+
+type CountryPinGroup =
+  | { kind: "single"; pin: CountryPin; showLabel: boolean }
+  | { kind: "cluster"; pins: CountryPin[]; px: number; py: number; lng: number; lat: number };
+
+// O popover de "vários lugares aqui perto" serve tanto pra cidades quanto
+// pra países sem forma no mapa — cada item sabe escolher a própria ação.
+type PopoverItem =
+  | { kind: "city"; ref: CityWithCountry }
+  | { kind: "country"; ref: Country };
+
 interface Props {
   countries: Country[];
   selectedCode: string | null;
@@ -98,12 +128,12 @@ function WorldMapInner({
   const [center, setCenter] = useState<[number, number]>(HOME_CENTER);
   const [hovered, setHovered] = useState<Country | null>(null);
   const [hoveredCity, setHoveredCity] = useState<CityWithCountry | null>(null);
-  const [clusterPopover, setClusterPopover] = useState<{
-    cities: CityWithCountry[];
-    x: number;
-    y: number;
-  } | null>(null);
+  const [popover, setPopover] = useState<{ items: PopoverItem[]; x: number; y: number } | null>(null);
   const [ready, setReady] = useState(false);
+  // IDs (ccn3, numéricos) realmente presentes na topologia carregada — usado
+  // pra descobrir quais países da nossa lista NÃO têm forma própria no mapa
+  // e por isso precisam do alfinete de reserva.
+  const [presentCcn3, setPresentCcn3] = useState<Set<string> | null>(null);
   // O ZoomableGroup calcula a posição inicial a partir do tamanho REAL do
   // container no momento em que monta. Se as fontes (Google Fonts, via
   // <link>) ainda não carregaram, o texto acima do mapa pode mudar de
@@ -119,7 +149,7 @@ function WorldMapInner({
   const wrapRef = useRef<HTMLDivElement>(null);
   const tooltipAnchorRef = useRef<HTMLDivElement>(null);
   const rectRef = useRef<DOMRect | null>(null);
-  const clusterPopoverRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -250,7 +280,7 @@ function WorldMapInner({
     [onSelectCity],
   );
 
-  const handleClickCluster = useCallback((e: React.MouseEvent, cities: CityWithCountry[]) => {
+  const openPopover = useCallback((e: React.MouseEvent, items: PopoverItem[]) => {
     // Posição fixa (relativa à JANELA, não a nenhum container) — o mapa em
     // zoom alto costuma ocupar mais altura do que cabe na tela, então
     // clamping relativo ao container não garante nada; usando a janela
@@ -258,7 +288,7 @@ function WorldMapInner({
     // esteja na página.
     const POPOVER_WIDTH = 208;
     const rowH = 44;
-    const estimatedHeight = Math.min(36 + cities.length * rowH, 280);
+    const estimatedHeight = Math.min(36 + items.length * rowH, 280);
     const spaceBelow = window.innerHeight - e.clientY;
     // Abre pra cima se não couber embaixo do toque.
     const y =
@@ -267,33 +297,55 @@ function WorldMapInner({
         : Math.max(8, e.clientY - estimatedHeight - 12);
     const x = Math.max(8, Math.min(e.clientX - POPOVER_WIDTH / 2, window.innerWidth - POPOVER_WIDTH - 8));
     setHoveredCity(null);
-    setClusterPopover({ cities, x, y });
+    setHovered(null);
+    setPopover({ items, x, y });
   }, []);
 
-  const handlePickFromCluster = useCallback(
-    (c: CityWithCountry) => {
-      setClusterPopover(null);
-      onSelectCity?.(c);
+  const handleClickCluster = useCallback(
+    (e: React.MouseEvent, cities: CityWithCountry[]) => {
+      openPopover(
+        e,
+        cities.map((c): PopoverItem => ({ kind: "city", ref: c })),
+      );
     },
-    [onSelectCity],
+    [openPopover],
   );
 
-  // Fecha o popover do cluster ao clicar fora dele ou apertar Esc.
+  const handleClickCountryCluster = useCallback(
+    (e: React.MouseEvent, list: Country[]) => {
+      openPopover(
+        e,
+        list.map((c): PopoverItem => ({ kind: "country", ref: c })),
+      );
+    },
+    [openPopover],
+  );
+
+  const handlePickFromPopover = useCallback(
+    (item: PopoverItem) => {
+      setPopover(null);
+      if (item.kind === "city") onSelectCity?.(item.ref);
+      else onSelect(item.ref);
+    },
+    [onSelectCity, onSelect],
+  );
+
+  // Fecha o popover ao clicar fora dele ou apertar Esc.
   useEffect(() => {
-    if (!clusterPopover) return;
+    if (!popover) return;
     const onDown = (e: Event) => {
       const target = e.target as Node;
-      if (clusterPopoverRef.current?.contains(target)) return;
-      setClusterPopover(null);
+      if (popoverRef.current?.contains(target)) return;
+      setPopover(null);
     };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setClusterPopover(null);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPopover(null);
     document.addEventListener("pointerdown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("pointerdown", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [clusterPopover]);
+  }, [popover]);
 
   // Cidades visíveis na área atual do mapa — não depende de nenhum país
   // estar selecionado: é só dar zoom em qualquer lugar do mundo. Quanto
@@ -349,6 +401,63 @@ function WorldMapInner({
     });
   }, [center, zoom]);
 
+  // Países sem forma própria na topologia (ver comentário na constante
+  // COUNTRY_PIN_REVEAL_ZOOM) — a posição de cada um só precisa ser
+  // recalculada quando a LISTA de países ausentes muda, não a cada
+  // zoom/arraste.
+  const missingCountryPins = useMemo<CountryPin[]>(() => {
+    if (!presentCcn3) return [];
+    const pins: CountryPin[] = [];
+    for (const c of countries) {
+      if (!c.latlng || !c.ccn3) continue;
+      if (presentCcn3.has(String(Number(c.ccn3)))) continue;
+      const [px, py] = projectPoint(c.latlng[1], c.latlng[0]);
+      pins.push({ country: c, lat: c.latlng[0], lng: c.latlng[1], px, py });
+    }
+    return pins;
+  }, [countries, presentCcn3]);
+
+  // Mesma lógica de área visível + agrupamento das cidades, aplicada aos
+  // alfinetes de país — assim ilhas próximas (Caribe, Pacífico) ou países
+  // vizinhos minúsculos (Vaticano perto de San Marino) também viram um
+  // cluster único em vez de se atropelarem na tela.
+  const countryPinGroups = useMemo<CountryPinGroup[]>(() => {
+    if (zoom < COUNTRY_PIN_REVEAL_ZOOM || !missingCountryPins.length) return [];
+    const [cx, cy] = projectPoint(center[0], center[1]);
+    const halfW = 400 / zoom;
+    const halfH = 300 / zoom;
+    const minX = cx - halfW;
+    const maxX = cx + halfW;
+    const minY = cy - halfH;
+    const maxY = cy + halfH;
+    const visible = missingCountryPins.filter(
+      (p) => p.px >= minX && p.px <= maxX && p.py >= minY && p.py <= maxY,
+    );
+
+    const CLUSTER_RADIUS_PX = 18;
+    const clusterGapProj = CLUSTER_RADIUS_PX / zoom;
+    const rawGroups: CountryPin[][] = [];
+    for (const p of visible) {
+      const group = rawGroups.find((g) => Math.hypot(g[0].px - p.px, g[0].py - p.py) < clusterGapProj);
+      if (group) group.push(p);
+      else rawGroups.push([p]);
+    }
+
+    const MIN_LABEL_GAP_PX = 44;
+    const minGapProj = MIN_LABEL_GAP_PX / zoom;
+    const placedLabels: { px: number; py: number }[] = [];
+    return rawGroups.map((g): CountryPinGroup => {
+      if (g.length === 1) {
+        const p = g[0];
+        const tooClose = placedLabels.some((pl) => Math.hypot(pl.px - p.px, pl.py - p.py) < minGapProj);
+        if (!tooClose) placedLabels.push({ px: p.px, py: p.py });
+        return { kind: "single", pin: p, showLabel: !tooClose };
+      }
+      const anchor = g[0];
+      return { kind: "cluster", pins: g, px: anchor.px, py: anchor.py, lng: anchor.lng, lat: anchor.lat };
+    });
+  }, [missingCountryPins, center, zoom]);
+
   // Todo o conteúdo do SVG (esferas, meridianos, países) fica memoizado à
   // parte: só recalcula quando algo que realmente muda a pintura do mapa
   // muda — não a cada hover ou movimento do mouse.
@@ -377,6 +486,10 @@ function WorldMapInner({
         <Geographies geography={GEO_URL}>
           {({ geographies }: { geographies: GeoFeature[] }) => {
             if (geographies.length && !ready) queueMicrotask(() => setReady(true));
+            if (geographies.length && !presentCcn3) {
+              const ids = new Set(geographies.map((g) => String(Number(g.id))));
+              queueMicrotask(() => setPresentCcn3(ids));
+            }
             return geographies.map((geo) => {
               const country = byCcn3.get(String(Number(geo.id)));
               const dimmed = isFiltered(country);
@@ -572,6 +685,95 @@ function WorldMapInner({
             ),
           )}
         </AnimatePresence>
+
+        {/* Alfinetes de reserva pra países sem forma própria na topologia
+            (Mônaco, Liechtenstein, San Marino, Malta, Andorra, várias ilhas
+            do Caribe e do Pacífico...) — sem isso, esses países não têm
+            NENHUM jeito de serem clicados no mapa, só pela busca. Clicar
+            aqui funciona exatamente como clicar na forma de um país normal. */}
+        <AnimatePresence>
+          {countryPinGroups.map((g, i) =>
+            g.kind === "single" ? (
+              <Marker key={`pin-${g.pin.country.cca2}`} coordinates={[g.pin.lng, g.pin.lat]}>
+                <motion.g
+                  initial={{ opacity: 0, scale: 0.3 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.3 }}
+                  transition={{ delay: Math.min(i, 14) * 0.035, type: "spring", stiffness: 320, damping: 22 }}
+                  onMouseEnter={() => handleEnterCountry(g.pin.country)}
+                  onMouseLeave={handleLeaveCountry}
+                  onClick={() => handleClickCountry(g.pin.country)}
+                  style={{ cursor: "pointer" }}
+                >
+                  <defs>
+                    <clipPath id={`flagclip-${g.pin.country.cca2}`}>
+                      <circle r={6.5 / zoom} />
+                    </clipPath>
+                  </defs>
+                  <circle
+                    r={8 / zoom}
+                    fill="oklch(0.16 0.02 260)"
+                    stroke={COUNTRY_PIN_COLOR}
+                    strokeWidth={1.6 / zoom}
+                  />
+                  <image
+                    href={g.pin.country.flags.png}
+                    x={-6.5 / zoom}
+                    y={-6.5 / zoom}
+                    width={13 / zoom}
+                    height={13 / zoom}
+                    clipPath={`url(#flagclip-${g.pin.country.cca2})`}
+                    preserveAspectRatio="xMidYMid slice"
+                    style={{ pointerEvents: "none" }}
+                  />
+                  {g.showLabel && (
+                    <text
+                      textAnchor="middle"
+                      y={-10 / zoom}
+                      fontSize={9.5 / zoom}
+                      fontWeight={600}
+                      fill="oklch(0.97 0.015 90)"
+                      stroke="oklch(0.1 0.02 260)"
+                      strokeWidth={2.4 / zoom}
+                      paintOrder="stroke"
+                      style={{ pointerEvents: "none" }}
+                    >
+                      {getPtName(g.pin.country)}
+                    </text>
+                  )}
+                </motion.g>
+              </Marker>
+            ) : (
+              <Marker key={`pincluster-${g.pins[0].country.cca2}`} coordinates={[g.lng, g.lat]}>
+                <motion.g
+                  initial={{ opacity: 0, scale: 0.3 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.3 }}
+                  transition={{ delay: Math.min(i, 14) * 0.035, type: "spring", stiffness: 320, damping: 22 }}
+                  onClick={(e) => handleClickCountryCluster(e, g.pins.map((p) => p.country))}
+                  style={{ cursor: "pointer" }}
+                >
+                  <circle
+                    r={11 / zoom}
+                    fill="oklch(0.18 0.035 230)"
+                    stroke={COUNTRY_PIN_COLOR}
+                    strokeWidth={1.6 / zoom}
+                  />
+                  <text
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fontSize={10 / zoom}
+                    fontWeight={700}
+                    fill="oklch(0.97 0.015 90)"
+                    style={{ pointerEvents: "none" }}
+                  >
+                    {g.pins.length}
+                  </text>
+                </motion.g>
+              </Marker>
+            ),
+          )}
+        </AnimatePresence>
       </>
     );
   }, [
@@ -593,6 +795,8 @@ function WorldMapInner({
     handleLeaveCity,
     handleClickCity,
     handleClickCluster,
+    countryPinGroups,
+    handleClickCountryCluster,
   ]);
 
   return (
@@ -792,52 +996,75 @@ function WorldMapInner({
 
       {/* Popover do cluster: alguns lugares ficam próximos demais na tela
           pra separar com zoom (bairros da mesma cidade, distritos de um
-          país minúsculo) — toca no cluster e escolhe qual dos dois quis
-          dizer, em vez de tentar acertar um pontinho impossível. Fica FORA
-          da caixa do mapa (que corta qualquer coisa que passe da borda,
-          overflow-hidden) — assim nunca aparece cortado perto de uma borda. */}
+          país minúsculo, ilhas vizinhas) — toca no cluster e escolhe qual
+          dos itens quis dizer, em vez de tentar acertar um pontinho
+          impossível. Serve tanto pra cidades quanto pra países sem forma
+          própria no mapa. Fica FORA da caixa do mapa (que corta qualquer
+          coisa que passe da borda, overflow-hidden) — assim nunca aparece
+          cortado perto de uma borda. */}
       <AnimatePresence>
-        {clusterPopover && (
+        {popover && (
           <motion.div
-            ref={clusterPopoverRef}
+            ref={popoverRef}
             initial={{ opacity: 0, y: 6, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 6, scale: 0.96 }}
             transition={{ duration: 0.15 }}
-            style={{ left: clusterPopover.x, top: clusterPopover.y }}
+            style={{ left: popover.x, top: popover.y }}
             className="fixed z-[70] w-52 overflow-hidden rounded-2xl border border-border bg-surface-elevated/98 p-1.5 shadow-panel backdrop-blur"
             role="menu"
           >
             <p className="px-2.5 pb-1.5 pt-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              {clusterPopover.cities.length} lugares aqui perto
+              {popover.items.length} lugares aqui perto
             </p>
             <ul className="max-h-64 space-y-0.5 overflow-y-auto">
-              {clusterPopover.cities.map((c) => (
-                <li key={`${c.cca2}-${c.name}`}>
-                  <button
-                    onClick={() => handlePickFromCluster(c)}
-                    className="group flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-muted/60"
-                    role="menuitem"
-                  >
-                    <span
-                      className="grid h-6 w-6 shrink-0 place-items-center rounded-full"
-                      style={{ background: `color-mix(in oklch, ${cityMarkerColor(c)} 22%, transparent)` }}
+              {popover.items.map((item) => {
+                const key =
+                  item.kind === "city" ? `city-${item.ref.cca2}-${item.ref.name}` : `country-${item.ref.cca2}`;
+                const title = item.kind === "city" ? item.ref.name : getPtName(item.ref);
+                const subtitle =
+                  item.kind === "city"
+                    ? byCca2.get(item.ref.cca2)
+                      ? getPtName(byCca2.get(item.ref.cca2)!)
+                      : ""
+                    : "país inteiro";
+                return (
+                  <li key={key}>
+                    <button
+                      onClick={() => handlePickFromPopover(item)}
+                      className="group flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-muted/60"
+                      role="menuitem"
                     >
-                      <MapPin className="h-3.5 w-3.5" style={{ color: cityMarkerColor(c) }} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1 truncate text-xs font-medium text-foreground">
-                        {c.name}
-                        {c.capital && <span className="text-[9px] text-primary">★</span>}
+                      {item.kind === "city" ? (
+                        <span
+                          className="grid h-6 w-6 shrink-0 place-items-center rounded-full"
+                          style={{
+                            background: `color-mix(in oklch, ${cityMarkerColor(item.ref)} 22%, transparent)`,
+                          }}
+                        >
+                          <MapPin className="h-3.5 w-3.5" style={{ color: cityMarkerColor(item.ref) }} />
+                        </span>
+                      ) : (
+                        <img
+                          src={item.ref.flags.png}
+                          alt=""
+                          className="h-6 w-6 shrink-0 rounded-full object-cover ring-1 ring-border"
+                        />
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-1 truncate text-xs font-medium text-foreground">
+                          {title}
+                          {item.kind === "city" && item.ref.capital && (
+                            <span className="text-[9px] text-primary">★</span>
+                          )}
+                        </span>
+                        <span className="block truncate text-[10px] text-muted-foreground">{subtitle}</span>
                       </span>
-                      <span className="block truncate text-[10px] text-muted-foreground">
-                        {byCca2.get(c.cca2) ? getPtName(byCca2.get(c.cca2)!) : ""}
-                      </span>
-                    </span>
-                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" />
-                  </button>
-                </li>
-              ))}
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" />
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           </motion.div>
         )}
