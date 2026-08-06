@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, MapPin, Users, Landmark, Languages, Coins, Sparkles, Plane, MapPinned, ShieldAlert } from "lucide-react";
+import { X, MapPin, Users, Landmark, Languages, Coins, Sparkles, Plane, MapPinned, ShieldAlert, Compass, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import type { Country } from "@/lib/countries";
 import { formatPopulation, getPtName, getPtOfficialName, getRegionPt, getSubregionPt, translateCurrency, translateLanguage } from "@/lib/countries";
 import { getCuriosities } from "@/lib/curiosities";
 import { toggleStatus, usePassport } from "@/lib/passport";
+import { getCitiesForCountry, formatCityPop, type CityEntry } from "@/lib/cities";
 import { SensoryPanel } from "./SensoryPanel";
 import { ItineraryPanel } from "./ItineraryPanel";
 import { PhrasebookPanel } from "./PhrasebookPanel";
@@ -17,9 +18,10 @@ import { HoldToConfirm } from "./HoldToConfirm";
 interface Props {
   country: Country | null;
   onClose: () => void;
+  onOpenCity?: (city: CityEntry) => void;
 }
 
-export function CountryPanel({ country, onClose }: Props) {
+export function CountryPanel({ country, onClose, onOpenCity }: Props) {
   const passport = usePassport();
   const [confirmUnverify, setConfirmUnverify] = useState(false);
 
@@ -235,6 +237,53 @@ export function CountryPanel({ country, onClose }: Props) {
 
               {/* Aprenda uma frase */}
               <PhrasebookPanel country={country} />
+
+              {/* Principais cidades */}
+              {onOpenCity && getCitiesForCountry(country.cca2).length > 0 && (
+                <section className="mt-5">
+                  <header className="mb-3 flex items-center gap-2">
+                    <Compass className="h-4 w-4 text-primary" />
+                    <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      Principais cidades
+                    </h3>
+                  </header>
+                  <ul className="space-y-2">
+                    {getCitiesForCountry(country.cca2).map((city, i) => (
+                      <motion.li
+                        key={city.name}
+                        initial={{ opacity: 0, x: 14 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.05 + i * 0.04, duration: 0.35 }}
+                      >
+                        <button
+                          onClick={() => onOpenCity(city)}
+                          className="group flex w-full items-center gap-3 rounded-xl border border-border bg-surface/40 p-3 text-left transition-colors hover:border-primary/50 hover:bg-surface/70"
+                        >
+                          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary/15 text-primary">
+                            <MapPin className="h-4 w-4" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-1.5">
+                              <span className="truncate text-sm font-medium text-foreground group-hover:text-primary">
+                                {city.name}
+                              </span>
+                              {city.capital && (
+                                <span className="rounded-full bg-primary/15 px-1.5 py-0 text-[9px] font-semibold uppercase tracking-wide text-primary">
+                                  capital
+                                </span>
+                              )}
+                            </span>
+                            <span className="block text-xs text-muted-foreground">
+                              {formatCityPop(city.pop)} habitantes · ver atrações
+                            </span>
+                          </span>
+                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                        </button>
+                      </motion.li>
+                    ))}
+                  </ul>
+                </section>
+              )}
 
               {/* Curiosities */}
               <section className="mt-5">

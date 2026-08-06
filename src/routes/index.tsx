@@ -11,11 +11,13 @@ import { WorldMap } from "@/components/WorldMap";
 import { SearchBar } from "@/components/SearchBar";
 import { FilterBar, type ViewMode } from "@/components/FilterBar";
 import { CountryPanel } from "@/components/CountryPanel";
+import { CityPanel } from "@/components/CityPanel";
 import { MapSkeleton } from "@/components/CountrySkeleton";
 import { TravelQuiz } from "@/components/TravelQuiz";
 import { PassportStats } from "@/components/PassportStats";
 import { usePassport } from "@/lib/passport";
 import type { PassportStatus } from "@/lib/passport";
+import type { CityEntry, CityWithCountry } from "@/lib/cities";
 
 export const Route = createFileRoute("/")({
   component: Home,
@@ -29,6 +31,10 @@ function Home() {
   });
 
   const [selected, setSelected] = useState<Country | null>(null);
+  const [selectedCity, setSelectedCity] = useState<CityEntry | null>(null);
+  const [focusCity, setFocusCity] = useState<{ lat: number; lng: number; nonce: number } | null>(
+    null,
+  );
   const [region, setRegion] = useState("all");
   const [view, setView] = useState<ViewMode>("all");
   const [quizOpen, setQuizOpen] = useState(false);
@@ -52,6 +58,22 @@ function Home() {
   // tem nada a ver com o mapa (abrir o quiz, trocar filtro, etc.).
   const handleSelectCountry = useCallback((c: Country | null) => setSelected(c), []);
   const handleClosePanel = useCallback(() => setSelected(null), []);
+
+  // Cidade escolhida no mapa (marcador) — o país já está selecionado nesse
+  // fluxo, então só focamos a cidade e trocamos o painel.
+  const handleSelectCity = useCallback((city: CityEntry) => {
+    setSelectedCity(city);
+    setFocusCity({ lat: city.lat, lng: city.lng, nonce: Date.now() });
+  }, []);
+
+  // Cidade escolhida na busca — pode vir sem o país ainda selecionado.
+  const handlePickCity = useCallback((city: CityWithCountry, country: Country) => {
+    setSelected(country);
+    setSelectedCity(city);
+    setFocusCity({ lat: city.lat, lng: city.lng, nonce: Date.now() });
+  }, []);
+
+  const handleCloseCityPanel = useCallback(() => setSelectedCity(null), []);
 
   return (
     <div className="min-h-screen">
@@ -120,6 +142,7 @@ function Home() {
           <SearchBar
             countries={countries ?? []}
             onPick={handleSelectCountry}
+            onPickCity={handlePickCity}
           />
         </motion.div>
 
@@ -142,11 +165,18 @@ function Home() {
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.1 }}
+            // z-index acima do backdrop do painel de país (z-40) e abaixo dos
+            // próprios painéis (z-50 / z-[55]): o mapa continua vivo e
+            // clicável — inclusive os marcadores de cidade — mesmo com o
+            // painel lateral aberto, em vez de ficar bloqueado atrás do véu.
+            className="relative z-[45]"
           >
             <WorldMap
               countries={countries}
               selectedCode={selected?.cca2 ?? null}
               onSelect={handleSelectCountry}
+              onSelectCity={handleSelectCity}
+              focusCity={focusCity}
               filterRegion={region}
               statusMap={statusMap}
               verifiedSet={verifiedSet}
@@ -161,7 +191,13 @@ function Home() {
         </p>
       </main>
 
-      <CountryPanel country={selected} onClose={handleClosePanel} />
+      <CountryPanel
+        country={selectedCity ? null : selected}
+        onClose={handleClosePanel}
+        onOpenCity={handleSelectCity}
+      />
+
+      <CityPanel city={selectedCity} country={selected} onClose={handleCloseCityPanel} />
 
       <TravelQuiz
         open={quizOpen}
