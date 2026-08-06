@@ -59,12 +59,25 @@ function Home() {
   const handleSelectCountry = useCallback((c: Country | null) => setSelected(c), []);
   const handleClosePanel = useCallback(() => setSelected(null), []);
 
-  // Cidade escolhida no mapa (marcador) — o país já está selecionado nesse
-  // fluxo, então só focamos a cidade e trocamos o painel.
+  // Cidade escolhida dentro do painel do país ("Principais cidades") — o
+  // país já está selecionado nesse fluxo, então só focamos a cidade.
   const handleSelectCity = useCallback((city: CityEntry) => {
     setSelectedCity(city);
     setFocusCity({ lat: city.lat, lng: city.lng, nonce: Date.now() });
   }, []);
+
+  // Cidade escolhida direto no mapa — agora os marcadores aparecem sozinhos
+  // conforme o zoom, então a cidade pode ser de um país diferente do que
+  // estava selecionado (ou nenhum). Resolve o país certo pelo código.
+  const handleSelectCityFromMap = useCallback(
+    (city: CityWithCountry) => {
+      const country = countries?.find((c) => c.cca2 === city.cca2) ?? null;
+      if (country) setSelected(country);
+      setSelectedCity(city);
+      setFocusCity({ lat: city.lat, lng: city.lng, nonce: Date.now() });
+    },
+    [countries],
+  );
 
   // Cidade escolhida na busca — pode vir sem o país ainda selecionado.
   const handlePickCity = useCallback((city: CityWithCountry, country: Country) => {
@@ -175,7 +188,7 @@ function Home() {
               countries={countries}
               selectedCode={selected?.cca2 ?? null}
               onSelect={handleSelectCountry}
-              onSelectCity={handleSelectCity}
+              onSelectCity={handleSelectCityFromMap}
               focusCity={focusCity}
               filterRegion={region}
               statusMap={statusMap}

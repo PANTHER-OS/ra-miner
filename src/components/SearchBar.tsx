@@ -4,7 +4,7 @@ import { Search, X, MapPin, Globe2 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { Country } from "@/lib/countries";
 import { getPtName, getRegionPt } from "@/lib/countries";
-import { getAllCities, formatCityPop, type CityWithCountry } from "@/lib/cities";
+import { getAllCities, formatCityMeta, type CityWithCountry } from "@/lib/cities";
 
 interface Props {
   countries: Country[];
@@ -209,7 +209,7 @@ export function SearchBar({ countries, onPick, onPickCity }: Props) {
                         ) : (
                           <>
                             <Globe2 className="h-3 w-3 shrink-0" />
-                            {getPtName(r.country)} · {formatCityPop(r.city.pop)} hab.
+                            {getPtName(r.country)} · {formatCityMeta(r.city)}
                           </>
                         )}
                       </div>

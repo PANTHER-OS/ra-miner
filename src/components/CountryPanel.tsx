@@ -6,7 +6,7 @@ import type { Country } from "@/lib/countries";
 import { formatPopulation, getPtName, getPtOfficialName, getRegionPt, getSubregionPt, translateCurrency, translateLanguage } from "@/lib/countries";
 import { getCuriosities } from "@/lib/curiosities";
 import { toggleStatus, usePassport } from "@/lib/passport";
-import { getCitiesForCountry, formatCityPop, type CityEntry } from "@/lib/cities";
+import { getCitiesForCountry, formatCityMeta, type CityEntry } from "@/lib/cities";
 import { SensoryPanel } from "./SensoryPanel";
 import { ItineraryPanel } from "./ItineraryPanel";
 import { PhrasebookPanel } from "./PhrasebookPanel";
@@ -274,7 +274,7 @@ export function CountryPanel({ country, onClose, onOpenCity }: Props) {
                               )}
                             </span>
                             <span className="block text-xs text-muted-foreground">
-                              {formatCityPop(city.pop)} habitantes · ver atrações
+                              {formatCityMeta(city)} · ver atrações
                             </span>
                           </span>
                           <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />

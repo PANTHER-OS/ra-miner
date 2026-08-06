@@ -13,7 +13,7 @@ import { Minus, Plus, RotateCcw } from "lucide-react";
 import type { Country } from "@/lib/countries";
 import { getPtName } from "@/lib/countries";
 import type { PassportStatus } from "@/lib/passport";
-import { getCitiesForCountry, type CityEntry } from "@/lib/cities";
+import { getVisibleCities, projectPoint, PROJECTION_SCALE, type CityWithCountry } from "@/lib/cities";
 
 const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
@@ -28,19 +28,34 @@ const MAX_ZOOM = 8;
 // torto ao redefinir) em qualquer tela, celular ou desktop.
 const HOME_CENTER: [number, number] = [0, 0];
 
-// Cidades do país selecionado só aparecem a partir de um certo zoom — e
-// mais delas conforme se aproxima mais — pra imitar a sensação natural de
-// "ir chegando perto" de um mapa físico, em vez de despejar tudo de uma vez.
-const CITY_REVEAL_ZOOM = 2.6;
-const CITY_REVEAL_ZOOM_FULL = 5;
-const CITY_COUNT_FIRST = 4;
-const CITY_COUNT_FULL = 8;
+// Cidades aparecem sozinhas conforme o usuário dá zoom em QUALQUER lugar do
+// mapa — não é preciso selecionar um país. Perto (zoom baixo) só as mais
+// relevantes de cada país visível aparecem; aproximando mais, cidades um
+// pouco menos centrais (mas ainda entre as principais) vão se somando —
+// como abrir um mapa físico e ir enxergando mais detalhe aos poucos.
+function maxCityRankForZoom(zoom: number): number {
+  if (zoom < 1.8) return -1; // nada, visão de mundo/continente
+  if (zoom < 2.4) return 0; // só a mais relevante de cada país
+  if (zoom < 3.0) return 1;
+  if (zoom < 4.5) return 3; // zoom de quando um país é selecionado (3.2) cai aqui
+  if (zoom < 6) return 5;
+  return 9; // tudo que tiver disponível
+}
+const CITY_MARKER_LIMIT = 60; // teto defensivo pra não poluir em regiões muito densas
+
+type VisibleCity = CityWithCountry & { showLabel: boolean };
+
+function cityMarkerColor(c: { capital?: boolean; landmark?: boolean }): string {
+  if (c.landmark) return "oklch(0.72 0.14 155)"; // verde — marco natural
+  if (c.capital) return "var(--map-selected)"; // dourado — capital
+  return "oklch(0.86 0.15 85)"; // dourado claro — cidade comum
+}
 
 interface Props {
   countries: Country[];
   selectedCode: string | null;
   onSelect: (c: Country | null) => void;
-  onSelectCity?: (city: CityEntry) => void;
+  onSelectCity?: (city: CityWithCountry) => void;
   focusCity?: { lat: number; lng: number; nonce: number } | null;
   filterRegion: string; // "all" | region
   statusMap?: Map<string, PassportStatus>;
@@ -68,7 +83,7 @@ function WorldMapInner({
   const [zoom, setZoom] = useState(1);
   const [center, setCenter] = useState<[number, number]>(HOME_CENTER);
   const [hovered, setHovered] = useState<Country | null>(null);
-  const [hoveredCity, setHoveredCity] = useState<CityEntry | null>(null);
+  const [hoveredCity, setHoveredCity] = useState<CityWithCountry | null>(null);
   const [ready, setReady] = useState(false);
   // O ZoomableGroup calcula a posição inicial a partir do tamanho REAL do
   // container no momento em que monta. Se as fontes (Google Fonts, via
@@ -109,6 +124,14 @@ function WorldMapInner({
   const byCcn3 = useMemo(() => {
     const m = new Map<string, Country>();
     for (const c of countries) m.set(String(Number(c.ccn3)), c);
+    return m;
+  }, [countries]);
+
+  // Lookup por cca2 — usado na tooltip das cidades, já que com vários
+  // países visíveis ao mesmo tempo é útil mostrar de qual país é cada uma.
+  const byCca2 = useMemo(() => {
+    const m = new Map<string, Country>();
+    for (const c of countries) m.set(c.cca2, c);
     return m;
   }, [countries]);
 
@@ -195,27 +218,45 @@ function WorldMapInner({
     [onSelect],
   );
 
-  const handleEnterCity = useCallback((c: CityEntry) => {
+  const handleEnterCity = useCallback((c: CityWithCountry) => {
     setHoveredCity(c);
     setHovered(null);
   }, []);
   const handleLeaveCity = useCallback(() => setHoveredCity(null), []);
   const handleClickCity = useCallback(
-    (c: CityEntry) => {
+    (c: CityWithCountry) => {
       onSelectCity?.(c);
     },
     [onSelectCity],
   );
 
-  // Cidades do país selecionado, reveladas progressivamente conforme o
-  // zoom aumenta — só recalcula quando o país selecionado ou o zoom mudam.
-  const citiesToShow = useMemo<CityEntry[]>(() => {
-    if (!selectedCountry || zoom < CITY_REVEAL_ZOOM) return [];
-    const all = getCitiesForCountry(selectedCountry.cca2);
-    if (!all.length) return [];
-    const n = zoom >= CITY_REVEAL_ZOOM_FULL ? CITY_COUNT_FULL : CITY_COUNT_FIRST;
-    return all.slice(0, n);
-  }, [selectedCountry, zoom]);
+  // Cidades visíveis na área atual do mapa — não depende de nenhum país
+  // estar selecionado: é só dar zoom em qualquer lugar do mundo. Quanto
+  // mais perto, mais cidades (mesmo as "menos principais") vão se somando.
+  // A matemática replica o que o ZoomableGroup já faz internamente: projeta
+  // o centro atual e recorta um retângulo do tamanho da viewBox (800x600)
+  // dividido pelo zoom — sem precisar de nenhuma referência interna da lib.
+  const citiesToShow = useMemo<VisibleCity[]>(() => {
+    const maxRank = maxCityRankForZoom(zoom);
+    if (maxRank < 0) return [];
+    const [cx, cy] = projectPoint(center[0], center[1]);
+    const visible = getVisibleCities(cx, cy, zoom, maxRank, CITY_MARKER_LIMIT);
+
+    // Em regiões com muitos países pequenos e próximos (Balcãs, Golfo
+    // Pérsico, Caribe...), vários rótulos de texto acabam caindo em cima um
+    // do outro. Em vez de deixar poluído, mantém todo mundo com um ponto no
+    // mapa (contexto espacial preservado) mas só escreve o nome de quem não
+    // colide com um rótulo já desenhado — o nome ainda aparece ao passar o
+    // mouse, então nenhuma informação se perde, só o excesso visual.
+    const MIN_LABEL_GAP_PX = 46;
+    const minGapProj = MIN_LABEL_GAP_PX / zoom;
+    const placed: { px: number; py: number }[] = [];
+    return visible.map((c) => {
+      const tooClose = placed.some((p) => Math.hypot(p.px - c.px, p.py - c.py) < minGapProj);
+      if (!tooClose) placed.push({ px: c.px, py: c.py });
+      return { ...c, showLabel: !tooClose };
+    });
+  }, [center, zoom]);
 
   // Todo o conteúdo do SVG (esferas, meridianos, países) fica memoizado à
   // parte: só recalcula quando algo que realmente muda a pintura do mapa
@@ -289,12 +330,22 @@ function WorldMapInner({
                   onMouseLeave={handleLeaveCountry}
                   onClick={() => handleClickCountry(country)}
                   style={{
+                    // pointerEvents: "fill" é a correção do "piscar" perto de
+                    // fronteiras: por padrão o SVG conta a BORDA (stroke)
+                    // como área clicável também, e como o hover deixa a
+                    // borda mais grossa, ela passa a invadir visualmente o
+                    // país vizinho — o que faz o mouse, parado no mesmo
+                    // pixel, ficar alternando entre os dois países (e o
+                    // hover/tooltip "piscando" junto). Restringindo a área
+                    // de interação só ao preenchimento, a borda pode
+                    // engrossar à vontade sem nunca roubar o hover do vizinho.
                     default: {
                       fill: baseFill,
                       stroke: strokeColor,
                       strokeWidth: strokeW,
                       strokeLinejoin: "round",
                       outline: "none",
+                      pointerEvents: "fill",
                       transition: "fill 0.2s ease, opacity 0.2s ease",
                       cursor: country ? "pointer" : "default",
                       opacity: dimmed ? 0.28 : 1,
@@ -305,11 +356,13 @@ function WorldMapInner({
                       strokeWidth: hair * 1.8,
                       strokeLinejoin: "round",
                       outline: "none",
+                      pointerEvents: "fill",
                       cursor: "pointer",
                     },
                     pressed: {
                       fill: "var(--map-selected)",
                       outline: "none",
+                      pointerEvents: "fill",
                     },
                   }}
                   aria-label={country ? getPtName(country) : undefined}
@@ -347,16 +400,16 @@ function WorldMapInner({
           </Marker>
         )}
 
-        {/* Cidades do país selecionado — reveladas aos poucos conforme o
+        {/* Cidades visíveis na área do mapa — reveladas aos poucos conforme o
             zoom aumenta, cada uma "entrando" com uma animação suave. */}
         <AnimatePresence>
           {citiesToShow.map((c, i) => (
-            <Marker key={`${c.name}-${c.lat}`} coordinates={[c.lng, c.lat]}>
+            <Marker key={`${c.cca2}-${c.name}`} coordinates={[c.lng, c.lat]}>
               <motion.g
                 initial={{ opacity: 0, scale: 0.3 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.3 }}
-                transition={{ delay: i * 0.05, type: "spring", stiffness: 320, damping: 22 }}
+                transition={{ delay: Math.min(i, 14) * 0.035, type: "spring", stiffness: 320, damping: 22 }}
                 onMouseEnter={() => handleEnterCity(c)}
                 onMouseLeave={handleLeaveCity}
                 onClick={() => handleClickCity(c)}
@@ -364,30 +417,32 @@ function WorldMapInner({
               >
                 <circle
                   r={(c.capital ? 5 : 3.6) / zoom}
-                  fill={c.capital ? "var(--map-selected)" : "oklch(0.86 0.15 85)"}
+                  fill={cityMarkerColor(c)}
                   stroke="oklch(0.14 0.02 260)"
                   strokeWidth={1.1 / zoom}
                 />
                 <circle
                   r={(c.capital ? 9 : 7) / zoom}
                   fill="none"
-                  stroke={c.capital ? "var(--map-selected)" : "oklch(0.86 0.15 85)"}
+                  stroke={cityMarkerColor(c)}
                   strokeWidth={0.8 / zoom}
                   opacity={0.35}
                 />
-                <text
-                  textAnchor="middle"
-                  y={-9 / zoom}
-                  fontSize={9.5 / zoom}
-                  fontWeight={600}
-                  fill="oklch(0.97 0.015 90)"
-                  stroke="oklch(0.1 0.02 260)"
-                  strokeWidth={2.4 / zoom}
-                  paintOrder="stroke"
-                  style={{ pointerEvents: "none" }}
-                >
-                  {c.name}
-                </text>
+                {c.showLabel && (
+                  <text
+                    textAnchor="middle"
+                    y={-9 / zoom}
+                    fontSize={9.5 / zoom}
+                    fontWeight={600}
+                    fill="oklch(0.97 0.015 90)"
+                    stroke="oklch(0.1 0.02 260)"
+                    strokeWidth={2.4 / zoom}
+                    paintOrder="stroke"
+                    style={{ pointerEvents: "none" }}
+                  >
+                    {c.name}
+                  </text>
+                )}
               </motion.g>
             </Marker>
           ))}
@@ -426,7 +481,7 @@ function WorldMapInner({
       {layoutSettled && (
         <ComposableMap
           projection="geoEqualEarth"
-          projectionConfig={{ scale: 165 }}
+          projectionConfig={{ scale: PROJECTION_SCALE }}
           style={{ width: "100%", height: "100%" }}
         >
           <defs>
@@ -567,7 +622,15 @@ function WorldMapInner({
                   capital
                 </span>
               )}
-              <span className="text-muted-foreground">· toque para ver atrações</span>
+              {hoveredCity.landmark && (
+                <span className="rounded-full bg-[oklch(0.72_0.14_155_/_0.2)] px-1.5 py-0.5 text-[9px] font-semibold text-[oklch(0.72_0.14_155)]">
+                  marco natural
+                </span>
+              )}
+              <span className="text-muted-foreground">
+                {byCca2.get(hoveredCity.cca2) ? getPtName(byCca2.get(hoveredCity.cca2)!) : ""} · toque para ver
+                atrações
+              </span>
             </motion.div>
           )}
           {!hoveredCity && hovered && (
