@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Toaster } from "sonner";
 import { motion } from "framer-motion";
 import { Globe2, Compass } from "lucide-react";
@@ -46,6 +46,12 @@ function Home() {
     for (const code of passport.wishlist) if (!m.has(code)) m.set(code, "wishlist");
     return m;
   }, [passport]);
+
+  // Referência estável: evita que o mapa (memoizado) perca o memo e
+  // reconstrua tudo sempre que a Home re-renderiza por um motivo que não
+  // tem nada a ver com o mapa (abrir o quiz, trocar filtro, etc.).
+  const handleSelectCountry = useCallback((c: Country | null) => setSelected(c), []);
+  const handleClosePanel = useCallback(() => setSelected(null), []);
 
   return (
     <div className="min-h-screen">
@@ -113,7 +119,7 @@ function Home() {
         >
           <SearchBar
             countries={countries ?? []}
-            onPick={(c) => setSelected(c)}
+            onPick={handleSelectCountry}
           />
         </motion.div>
 
@@ -140,7 +146,7 @@ function Home() {
             <WorldMap
               countries={countries}
               selectedCode={selected?.cca2 ?? null}
-              onSelect={(c) => setSelected(c)}
+              onSelect={handleSelectCountry}
               filterRegion={region}
               statusMap={statusMap}
               verifiedSet={verifiedSet}
@@ -155,13 +161,13 @@ function Home() {
         </p>
       </main>
 
-      <CountryPanel country={selected} onClose={() => setSelected(null)} />
+      <CountryPanel country={selected} onClose={handleClosePanel} />
 
       <TravelQuiz
         open={quizOpen}
         onClose={() => setQuizOpen(false)}
         countries={countries ?? []}
-        onOpenCountry={(c) => setSelected(c)}
+        onOpenCountry={handleSelectCountry}
       />
     </div>
   );
