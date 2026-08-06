@@ -634,6 +634,12 @@ function WorldMapInner({
                     stroke={cityMarkerColor(g.city)}
                     strokeWidth={0.8 / zoom}
                     opacity={0.35}
+                    // Só decoração — sem isso, a fina faixa da borda conta
+                    // como área de hover (mesmo sendo "vazada" por dentro),
+                    // e o vão entre ela e a bolinha sólida do centro faz o
+                    // mouse entrar e sair do hover repetidamente ao passar
+                    // por cima, piscando o mapa. Só a bolinha central conta.
+                    style={{ pointerEvents: "none" }}
                   />
                   {g.city.showLabel && (
                     <text
