@@ -18,7 +18,11 @@ import { getVisibleCities, projectPoint, PROJECTION_SCALE, type CityWithCountry 
 const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
 const MIN_ZOOM = 1;
-const MAX_ZOOM = 8;
+// Antes ia só até 8x — em regiões com muitos países pequenos e próximos
+// (Caribe, Bálcãs, Golfo Pérsico...) isso não deixava zoom suficiente pra
+// separar um país do outro com o dedo/mouse. 16x dá bastante margem pra
+// isolar qualquer país individualmente antes de tocar.
+const MAX_ZOOM = 16;
 // [0, 0] (Greenwich/equador) é o único ponto que a projeção já posiciona
 // exatamente no centro geométrico da viewBox (400, 300 numa caixa de
 // 800x600), sem precisar de nenhum deslocamento extra. Qualquer outro valor
@@ -475,7 +479,12 @@ function WorldMapInner({
       ref={wrapRef}
       onPointerEnter={refreshRect}
       onPointerMove={handlePointerMove}
-      className="group/map relative aspect-[16/10] w-full touch-none overflow-hidden rounded-3xl border border-border bg-[color:var(--map-ocean)] shadow-panel [&_svg]:touch-none"
+      // No celular, a proporção 4:3 bate exatamente com a caixa interna do
+      // mapa (800x600 = 4:3) — zero faixa vazia (letterbox) em cima/embaixo,
+      // então o mapa ocupa a tela toda que dá, o que já facilita bastante
+      // tocar num país pequeno. Do sm: pra cima, sobra tela de sobra e a
+      // proporção mais cinematográfica (16:10) volta a fazer sentido.
+      className="group/map relative aspect-[4/3] w-full touch-none overflow-hidden rounded-3xl border border-border bg-[color:var(--map-ocean)] shadow-panel [&_svg]:touch-none sm:aspect-[16/10]"
       style={{ touchAction: "none", overscrollBehavior: "contain" }}
     >
       {layoutSettled && (
@@ -567,7 +576,7 @@ function WorldMapInner({
               exit={{ opacity: 0, scale: 0.8 }}
               onClick={reset}
               aria-label="Voltar à visão do mundo"
-              className="grid h-9 w-9 place-items-center rounded-full border border-border bg-surface/80 text-muted-foreground shadow-card backdrop-blur transition-colors hover:border-primary/50 hover:text-primary"
+              className="grid h-10 w-10 place-items-center rounded-full border border-border bg-surface/80 text-muted-foreground shadow-card backdrop-blur transition-colors hover:border-primary/50 hover:text-primary sm:h-9 sm:w-9"
             >
               <RotateCcw className="h-3.5 w-3.5" />
             </motion.button>
@@ -701,7 +710,7 @@ function ControlBtn({
       onClick={onClick}
       aria-label={label}
       disabled={disabled}
-      className="grid h-9 w-9 place-items-center text-muted-foreground transition-colors hover:text-primary disabled:opacity-30 disabled:hover:text-muted-foreground"
+      className="grid h-10 w-10 place-items-center text-muted-foreground transition-colors hover:text-primary disabled:opacity-30 disabled:hover:text-muted-foreground sm:h-9 sm:w-9"
     >
       {children}
     </button>

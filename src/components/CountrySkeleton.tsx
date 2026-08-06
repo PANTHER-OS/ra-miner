@@ -1,6 +1,6 @@
 export function MapSkeleton() {
   return (
-    <div className="aspect-[16/10] w-full overflow-hidden rounded-3xl border border-border bg-surface/60">
+    <div className="aspect-[4/3] w-full overflow-hidden rounded-3xl border border-border bg-surface/60 sm:aspect-[16/10]">
       <div className="shimmer h-full w-full" />
     </div>
   );
