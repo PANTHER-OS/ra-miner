@@ -49,9 +49,40 @@ function WorldMapInner({
   const [center, setCenter] = useState<[number, number]>(HOME_CENTER);
   const [hovered, setHovered] = useState<Country | null>(null);
   const [ready, setReady] = useState(false);
+  // O ZoomableGroup calcula a posição inicial a partir do tamanho REAL do
+  // container no momento em que monta. Se as fontes (Google Fonts, via
+  // <link>) ainda não carregaram, o texto acima do mapa pode mudar de
+  // altura logo em seguida e empurrar o mapa — resultado: ele nasce
+  // "torto" e só se corrige quando o usuário mexe (o que força um
+  // recálculo). Por isso só montamos o mapa depois que o layout de fato
+  // se assentou.
+  const [layoutSettled, setLayoutSettled] = useState(false);
+  // Força o ZoomableGroup a remontar do zero ao "redefinir" — evita que o
+  // zoom/pan interno da biblioteca herde uma transformação antiga e volte
+  // deslocado para um dos lados em vez de perfeitamente centralizado.
+  const [mapInstanceKey, setMapInstanceKey] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
   const tooltipAnchorRef = useRef<HTMLDivElement>(null);
   const rectRef = useRef<DOMRect | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const settle = () => {
+      // Mais um frame depois do "fonts ready" pra garantir que o reflow do
+      // texto (se houver) já aconteceu antes do mapa medir o container.
+      requestAnimationFrame(() => {
+        if (!cancelled) setLayoutSettled(true);
+      });
+    };
+    if (typeof document !== "undefined" && "fonts" in document) {
+      document.fonts.ready.then(settle).catch(settle);
+    } else {
+      settle();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Fast lookup by numeric code
   const byCcn3 = useMemo(() => {
@@ -90,6 +121,7 @@ function WorldMapInner({
   const reset = () => {
     setZoom(1);
     setCenter(HOME_CENTER);
+    setMapInstanceKey((k) => k + 1);
   };
 
   const zoomIn = () => setZoom((z) => Math.min(z * 1.6, MAX_ZOOM));
@@ -290,42 +322,45 @@ function WorldMapInner({
       className="group/map relative aspect-[16/10] w-full touch-none overflow-hidden rounded-3xl border border-border bg-[color:var(--map-ocean)] shadow-panel [&_svg]:touch-none"
       style={{ touchAction: "none", overscrollBehavior: "contain" }}
     >
-      <ComposableMap
-        projection="geoEqualEarth"
-        projectionConfig={{ scale: 165 }}
-        style={{ width: "100%", height: "100%" }}
-      >
-        <defs>
-          {/* Oceano com profundidade */}
-          <radialGradient id="mef-ocean" cx="50%" cy="38%" r="78%">
-            <stop offset="0%" stopColor="oklch(0.24 0.035 250)" />
-            <stop offset="55%" stopColor="oklch(0.17 0.026 255)" />
-            <stop offset="100%" stopColor="oklch(0.11 0.016 262)" />
-          </radialGradient>
-          {/* Relevo sutil nos continentes */}
-          <linearGradient id="mef-land" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="oklch(0.42 0.024 255)" />
-            <stop offset="100%" stopColor="oklch(0.33 0.02 258)" />
-          </linearGradient>
-        </defs>
-
-        <ZoomableGroup
-          zoom={zoom}
-          center={center}
-          onMoveEnd={({ zoom: z, coordinates }) => {
-            setZoom(z);
-            setCenter(coordinates as [number, number]);
-          }}
-          minZoom={MIN_ZOOM}
-          maxZoom={MAX_ZOOM}
-          translateExtent={[
-            [0, 0],
-            [800, 600],
-          ]}
+      {layoutSettled && (
+        <ComposableMap
+          projection="geoEqualEarth"
+          projectionConfig={{ scale: 165 }}
+          style={{ width: "100%", height: "100%" }}
         >
-          {mapContent}
-        </ZoomableGroup>
-      </ComposableMap>
+          <defs>
+            {/* Oceano com profundidade */}
+            <radialGradient id="mef-ocean" cx="50%" cy="38%" r="78%">
+              <stop offset="0%" stopColor="oklch(0.24 0.035 250)" />
+              <stop offset="55%" stopColor="oklch(0.17 0.026 255)" />
+              <stop offset="100%" stopColor="oklch(0.11 0.016 262)" />
+            </radialGradient>
+            {/* Relevo sutil nos continentes */}
+            <linearGradient id="mef-land" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="oklch(0.42 0.024 255)" />
+              <stop offset="100%" stopColor="oklch(0.33 0.02 258)" />
+            </linearGradient>
+          </defs>
+
+          <ZoomableGroup
+            key={mapInstanceKey}
+            zoom={zoom}
+            center={center}
+            onMoveEnd={({ zoom: z, coordinates }) => {
+              setZoom(z);
+              setCenter(coordinates as [number, number]);
+            }}
+            minZoom={MIN_ZOOM}
+            maxZoom={MAX_ZOOM}
+            translateExtent={[
+              [0, 0],
+              [800, 600],
+            ]}
+          >
+            {mapContent}
+          </ZoomableGroup>
+        </ComposableMap>
+      )}
 
       {/* Vinheta / brilho de borda */}
       <div
@@ -341,7 +376,7 @@ function WorldMapInner({
 
       {/* Skeleton de carregamento */}
       <AnimatePresence>
-        {!ready && (
+        {(!ready || !layoutSettled) && (
           <motion.div
             exit={{ opacity: 0 }}
             transition={{ duration: 0.4 }}
