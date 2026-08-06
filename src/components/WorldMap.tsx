@@ -9,7 +9,7 @@ import {
   ZoomableGroup,
 } from "react-simple-maps";
 import { AnimatePresence, motion } from "framer-motion";
-import { Minus, Plus, RotateCcw } from "lucide-react";
+import { Minus, Plus, RotateCcw, MapPin, ChevronRight } from "lucide-react";
 import type { Country } from "@/lib/countries";
 import { getPtName } from "@/lib/countries";
 import type { PassportStatus } from "@/lib/passport";
@@ -48,6 +48,16 @@ function maxCityRankForZoom(zoom: number): number {
 const CITY_MARKER_LIMIT = 60; // teto defensivo pra não poluir em regiões muito densas
 
 type VisibleCity = CityWithCountry & { showLabel: boolean };
+
+// Quando 2+ marcadores caem tão perto na tela que ficam grudados — bairros
+// da mesma cidade, distritos de um país minúsculo como Mônaco — não tem
+// zoom que resolva isso sozinho (a distância real entre eles é curta
+// demais). A solução é agrupar: em vez de pontos impossíveis de separar
+// com o dedo, um único alvo maior e clicável, que ao ser tocado mostra a
+// lista pra escolher o lugar certo.
+type CityGroup =
+  | { kind: "single"; city: VisibleCity }
+  | { kind: "cluster"; cities: CityWithCountry[]; px: number; py: number; lng: number; lat: number };
 
 function cityMarkerColor(c: { capital?: boolean; landmark?: boolean }): string {
   if (c.landmark) return "oklch(0.72 0.14 155)"; // verde — marco natural
@@ -88,6 +98,11 @@ function WorldMapInner({
   const [center, setCenter] = useState<[number, number]>(HOME_CENTER);
   const [hovered, setHovered] = useState<Country | null>(null);
   const [hoveredCity, setHoveredCity] = useState<CityWithCountry | null>(null);
+  const [clusterPopover, setClusterPopover] = useState<{
+    cities: CityWithCountry[];
+    x: number;
+    y: number;
+  } | null>(null);
   const [ready, setReady] = useState(false);
   // O ZoomableGroup calcula a posição inicial a partir do tamanho REAL do
   // container no momento em que monta. Se as fontes (Google Fonts, via
@@ -104,6 +119,7 @@ function WorldMapInner({
   const wrapRef = useRef<HTMLDivElement>(null);
   const tooltipAnchorRef = useRef<HTMLDivElement>(null);
   const rectRef = useRef<DOMRect | null>(null);
+  const clusterPopoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -234,31 +250,102 @@ function WorldMapInner({
     [onSelectCity],
   );
 
+  const handleClickCluster = useCallback((e: React.MouseEvent, cities: CityWithCountry[]) => {
+    // Posição fixa (relativa à JANELA, não a nenhum container) — o mapa em
+    // zoom alto costuma ocupar mais altura do que cabe na tela, então
+    // clamping relativo ao container não garante nada; usando a janela
+    // direto, o popover sempre fica visível não importa onde o cluster
+    // esteja na página.
+    const POPOVER_WIDTH = 208;
+    const rowH = 44;
+    const estimatedHeight = Math.min(36 + cities.length * rowH, 280);
+    const spaceBelow = window.innerHeight - e.clientY;
+    // Abre pra cima se não couber embaixo do toque.
+    const y =
+      spaceBelow > estimatedHeight + 16
+        ? Math.min(e.clientY + 12, window.innerHeight - estimatedHeight - 8)
+        : Math.max(8, e.clientY - estimatedHeight - 12);
+    const x = Math.max(8, Math.min(e.clientX - POPOVER_WIDTH / 2, window.innerWidth - POPOVER_WIDTH - 8));
+    setHoveredCity(null);
+    setClusterPopover({ cities, x, y });
+  }, []);
+
+  const handlePickFromCluster = useCallback(
+    (c: CityWithCountry) => {
+      setClusterPopover(null);
+      onSelectCity?.(c);
+    },
+    [onSelectCity],
+  );
+
+  // Fecha o popover do cluster ao clicar fora dele ou apertar Esc.
+  useEffect(() => {
+    if (!clusterPopover) return;
+    const onDown = (e: Event) => {
+      const target = e.target as Node;
+      if (clusterPopoverRef.current?.contains(target)) return;
+      setClusterPopover(null);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setClusterPopover(null);
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [clusterPopover]);
+
   // Cidades visíveis na área atual do mapa — não depende de nenhum país
   // estar selecionado: é só dar zoom em qualquer lugar do mundo. Quanto
   // mais perto, mais cidades (mesmo as "menos principais") vão se somando.
   // A matemática replica o que o ZoomableGroup já faz internamente: projeta
   // o centro atual e recorta um retângulo do tamanho da viewBox (800x600)
   // dividido pelo zoom — sem precisar de nenhuma referência interna da lib.
-  const citiesToShow = useMemo<VisibleCity[]>(() => {
+  const cityGroups = useMemo<CityGroup[]>(() => {
     const maxRank = maxCityRankForZoom(zoom);
     if (maxRank < 0) return [];
     const [cx, cy] = projectPoint(center[0], center[1]);
     const visible = getVisibleCities(cx, cy, zoom, maxRank, CITY_MARKER_LIMIT);
 
-    // Em regiões com muitos países pequenos e próximos (Balcãs, Golfo
-    // Pérsico, Caribe...), vários rótulos de texto acabam caindo em cima um
-    // do outro. Em vez de deixar poluído, mantém todo mundo com um ponto no
-    // mapa (contexto espacial preservado) mas só escreve o nome de quem não
-    // colide com um rótulo já desenhado — o nome ainda aparece ao passar o
-    // mouse, então nenhuma informação se perde, só o excesso visual.
+    // Passo 1 — agrupamento: quando os CÍRCULOS de dois marcadores ficariam
+    // sobrepostos na tela (bairros da mesma cidade, distritos de um país
+    // minúsculo como Mônaco — nenhum zoom no mundo separa isso, a distância
+    // real é curta demais), junta num único grupo clicável maior. `visible`
+    // já vem ordenado por relevância, então o primeiro membro de cada grupo
+    // é sempre o mais importante — é ele quem "ancora" a posição do grupo.
+    const CLUSTER_RADIUS_PX = 18;
+    const clusterGapProj = CLUSTER_RADIUS_PX / zoom;
+    const rawGroups: CityWithCountry[][] = [];
+    for (const c of visible) {
+      const group = rawGroups.find((g) => {
+        const anchor = g[0];
+        return Math.hypot(anchor.px - c.px, anchor.py - c.py) < clusterGapProj;
+      });
+      if (group) group.push(c);
+      else rawGroups.push([c]);
+    }
+
+    // Passo 2 — declutter de rótulo: só se aplica a marcadores SOZINHOS (um
+    // cluster já tem seu próprio contador, não precisa de nome embaixo). Em
+    // regiões com muitos países pequenos e próximos (Balcãs, Golfo Pérsico,
+    // Caribe...), vários nomes ainda colidiriam entre si mesmo sem cluster —
+    // mantém o ponto no mapa, mas só escreve quem não colide com um rótulo
+    // já desenhado (o nome ainda aparece ao passar o mouse).
     const MIN_LABEL_GAP_PX = 46;
     const minGapProj = MIN_LABEL_GAP_PX / zoom;
-    const placed: { px: number; py: number }[] = [];
-    return visible.map((c) => {
-      const tooClose = placed.some((p) => Math.hypot(p.px - c.px, p.py - c.py) < minGapProj);
-      if (!tooClose) placed.push({ px: c.px, py: c.py });
-      return { ...c, showLabel: !tooClose };
+    const placedLabels: { px: number; py: number }[] = [];
+
+    return rawGroups.map((g): CityGroup => {
+      if (g.length === 1) {
+        const c = g[0];
+        const tooClose = placedLabels.some(
+          (p) => Math.hypot(p.px - c.px, p.py - c.py) < minGapProj,
+        );
+        if (!tooClose) placedLabels.push({ px: c.px, py: c.py });
+        return { kind: "single", city: { ...c, showLabel: !tooClose } };
+      }
+      const anchor = g[0];
+      return { kind: "cluster", cities: g, px: anchor.px, py: anchor.py, lng: anchor.lng, lat: anchor.lat };
     });
   }, [center, zoom]);
 
@@ -405,51 +492,85 @@ function WorldMapInner({
         )}
 
         {/* Cidades visíveis na área do mapa — reveladas aos poucos conforme o
-            zoom aumenta, cada uma "entrando" com uma animação suave. */}
+            zoom aumenta, cada uma "entrando" com uma animação suave. Marcadores
+            que ficariam grudados na tela (sem zoom que resolva) viram um
+            único cluster clicável com contador. */}
         <AnimatePresence>
-          {citiesToShow.map((c, i) => (
-            <Marker key={`${c.cca2}-${c.name}`} coordinates={[c.lng, c.lat]}>
-              <motion.g
-                initial={{ opacity: 0, scale: 0.3 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.3 }}
-                transition={{ delay: Math.min(i, 14) * 0.035, type: "spring", stiffness: 320, damping: 22 }}
-                onMouseEnter={() => handleEnterCity(c)}
-                onMouseLeave={handleLeaveCity}
-                onClick={() => handleClickCity(c)}
-                style={{ cursor: "pointer" }}
-              >
-                <circle
-                  r={(c.capital ? 5 : 3.6) / zoom}
-                  fill={cityMarkerColor(c)}
-                  stroke="oklch(0.14 0.02 260)"
-                  strokeWidth={1.1 / zoom}
-                />
-                <circle
-                  r={(c.capital ? 9 : 7) / zoom}
-                  fill="none"
-                  stroke={cityMarkerColor(c)}
-                  strokeWidth={0.8 / zoom}
-                  opacity={0.35}
-                />
-                {c.showLabel && (
+          {cityGroups.map((g, i) =>
+            g.kind === "single" ? (
+              <Marker key={`${g.city.cca2}-${g.city.name}`} coordinates={[g.city.lng, g.city.lat]}>
+                <motion.g
+                  initial={{ opacity: 0, scale: 0.3 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.3 }}
+                  transition={{ delay: Math.min(i, 14) * 0.035, type: "spring", stiffness: 320, damping: 22 }}
+                  onMouseEnter={() => handleEnterCity(g.city)}
+                  onMouseLeave={handleLeaveCity}
+                  onClick={() => handleClickCity(g.city)}
+                  style={{ cursor: "pointer" }}
+                >
+                  <circle
+                    r={(g.city.capital ? 5 : 3.6) / zoom}
+                    fill={cityMarkerColor(g.city)}
+                    stroke="oklch(0.14 0.02 260)"
+                    strokeWidth={1.1 / zoom}
+                  />
+                  <circle
+                    r={(g.city.capital ? 9 : 7) / zoom}
+                    fill="none"
+                    stroke={cityMarkerColor(g.city)}
+                    strokeWidth={0.8 / zoom}
+                    opacity={0.35}
+                  />
+                  {g.city.showLabel && (
+                    <text
+                      textAnchor="middle"
+                      y={-9 / zoom}
+                      fontSize={9.5 / zoom}
+                      fontWeight={600}
+                      fill="oklch(0.97 0.015 90)"
+                      stroke="oklch(0.1 0.02 260)"
+                      strokeWidth={2.4 / zoom}
+                      paintOrder="stroke"
+                      style={{ pointerEvents: "none" }}
+                    >
+                      {g.city.name}
+                    </text>
+                  )}
+                </motion.g>
+              </Marker>
+            ) : (
+              <Marker key={`cluster-${g.cities[0].cca2}-${g.cities[0].name}`} coordinates={[g.lng, g.lat]}>
+                <motion.g
+                  initial={{ opacity: 0, scale: 0.3 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.3 }}
+                  transition={{ delay: Math.min(i, 14) * 0.035, type: "spring", stiffness: 320, damping: 22 }}
+                  onMouseEnter={() => handleEnterCity(g.cities[0])}
+                  onMouseLeave={handleLeaveCity}
+                  onClick={(e) => handleClickCluster(e, g.cities)}
+                  style={{ cursor: "pointer" }}
+                >
+                  <circle
+                    r={11 / zoom}
+                    fill="oklch(0.22 0.03 260)"
+                    stroke={cityMarkerColor(g.cities[0])}
+                    strokeWidth={1.6 / zoom}
+                  />
                   <text
                     textAnchor="middle"
-                    y={-9 / zoom}
-                    fontSize={9.5 / zoom}
-                    fontWeight={600}
+                    dominantBaseline="central"
+                    fontSize={10 / zoom}
+                    fontWeight={700}
                     fill="oklch(0.97 0.015 90)"
-                    stroke="oklch(0.1 0.02 260)"
-                    strokeWidth={2.4 / zoom}
-                    paintOrder="stroke"
                     style={{ pointerEvents: "none" }}
                   >
-                    {c.name}
+                    {g.cities.length}
                   </text>
-                )}
-              </motion.g>
-            </Marker>
-          ))}
+                </motion.g>
+              </Marker>
+            ),
+          )}
         </AnimatePresence>
       </>
     );
@@ -467,14 +588,15 @@ function WorldMapInner({
     handleEnterCountry,
     handleLeaveCountry,
     handleClickCountry,
-    citiesToShow,
+    cityGroups,
     handleEnterCity,
     handleLeaveCity,
     handleClickCity,
+    handleClickCluster,
   ]);
 
   return (
-    <div className="w-full">
+    <div className="relative w-full">
     <div
       ref={wrapRef}
       onPointerEnter={refreshRect}
@@ -667,6 +789,59 @@ function WorldMapInner({
         </AnimatePresence>
       </div>
     </div>
+
+      {/* Popover do cluster: alguns lugares ficam próximos demais na tela
+          pra separar com zoom (bairros da mesma cidade, distritos de um
+          país minúsculo) — toca no cluster e escolhe qual dos dois quis
+          dizer, em vez de tentar acertar um pontinho impossível. Fica FORA
+          da caixa do mapa (que corta qualquer coisa que passe da borda,
+          overflow-hidden) — assim nunca aparece cortado perto de uma borda. */}
+      <AnimatePresence>
+        {clusterPopover && (
+          <motion.div
+            ref={clusterPopoverRef}
+            initial={{ opacity: 0, y: 6, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.96 }}
+            transition={{ duration: 0.15 }}
+            style={{ left: clusterPopover.x, top: clusterPopover.y }}
+            className="fixed z-[70] w-52 overflow-hidden rounded-2xl border border-border bg-surface-elevated/98 p-1.5 shadow-panel backdrop-blur"
+            role="menu"
+          >
+            <p className="px-2.5 pb-1.5 pt-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+              {clusterPopover.cities.length} lugares aqui perto
+            </p>
+            <ul className="max-h-64 space-y-0.5 overflow-y-auto">
+              {clusterPopover.cities.map((c) => (
+                <li key={`${c.cca2}-${c.name}`}>
+                  <button
+                    onClick={() => handlePickFromCluster(c)}
+                    className="group flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-muted/60"
+                    role="menuitem"
+                  >
+                    <span
+                      className="grid h-6 w-6 shrink-0 place-items-center rounded-full"
+                      style={{ background: `color-mix(in oklch, ${cityMarkerColor(c)} 22%, transparent)` }}
+                    >
+                      <MapPin className="h-3.5 w-3.5" style={{ color: cityMarkerColor(c) }} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1 truncate text-xs font-medium text-foreground">
+                        {c.name}
+                        {c.capital && <span className="text-[9px] text-primary">★</span>}
+                      </span>
+                      <span className="block truncate text-[10px] text-muted-foreground">
+                        {byCca2.get(c.cca2) ? getPtName(byCca2.get(c.cca2)!) : ""}
+                      </span>
+                    </span>
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Legenda no celular, abaixo do mapa */}
       <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground sm:hidden">
