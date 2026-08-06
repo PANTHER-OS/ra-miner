@@ -4,7 +4,7 @@ import { X, MapPin, ExternalLink, Loader2, Compass, BookOpen } from "lucide-reac
 import type { Country } from "@/lib/countries";
 import { getPtName } from "@/lib/countries";
 import type { CityEntry } from "@/lib/cities";
-import { formatCityPop } from "@/lib/cities";
+import { formatCityMeta } from "@/lib/cities";
 import { fetchAttractions, type Attraction } from "@/lib/attractions";
 
 interface Props {
@@ -104,7 +104,7 @@ export function CityPanel({ city, country, onClose }: Props) {
               </h2>
               <p className="relative mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <MapPin className="h-3.5 w-3.5 text-primary/80" />
-                {formatCityPop(city.pop)} habitantes · {city.lat.toFixed(2)}°, {city.lng.toFixed(2)}°
+                {formatCityMeta(city)} · {city.lat.toFixed(2)}°, {city.lng.toFixed(2)}°
               </p>
             </div>
 
