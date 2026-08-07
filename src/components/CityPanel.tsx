@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, MapPin, ExternalLink, Loader2, Compass, BookOpen } from "lucide-react";
+import { X, MapPin, ExternalLink, Loader2, Compass, BookOpen, BedDouble } from "lucide-react";
 import type { Country } from "@/lib/countries";
 import { getPtName } from "@/lib/countries";
 import type { CityEntry } from "@/lib/cities";
@@ -11,6 +11,20 @@ interface Props {
   city: CityEntry | null;
   country: Country | null;
   onClose: () => void;
+}
+
+// Busca de hospedagem de verdade (não um link fixo pra home do site) —
+// `ss` é o termo de busca e latitude/longitude refinam pro ponto exato da
+// cidade, então duas cidades de mesmo nome (tipo "San Francisco" no Brasil
+// vs EUA) não se confundem.
+function buildBookingUrl(city: CityEntry, country: Country | null): string {
+  const query = country ? `${city.name}, ${getPtName(country)}` : city.name;
+  const params = new URLSearchParams({
+    ss: query,
+    latitude: String(city.lat),
+    longitude: String(city.lng),
+  });
+  return `https://www.booking.com/searchresults.html?${params.toString()}`;
 }
 
 export function CityPanel({ city, country, onClose }: Props) {
@@ -200,6 +214,41 @@ export function CityPanel({ city, country, onClose }: Props) {
                   Dados ao vivo da Wikipédia, por proximidade geográfica.
                 </p>
               )}
+
+              {/* Onde ficar — o app ainda não tem hospedagem própria (nem
+                  parceria de comissão), então em vez de inventar nome de
+                  hotel/preço/nota (o que seria simplesmente falso), isso
+                  manda pra uma busca de verdade no Booking.com já filtrada
+                  pra cidade e coordenada certas. Fica pronto pra virar link
+                  de afiliado (parâmetro `aid`) no dia em que existir uma
+                  parceria — só trocar BOOKING_AID abaixo. */}
+              <section className="mt-5">
+                <header className="mb-3 flex items-center gap-2">
+                  <BedDouble className="h-4 w-4 text-primary" />
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    Onde ficar
+                  </h3>
+                </header>
+                <div className="rounded-xl border border-border bg-surface/40 p-4">
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    Ainda não temos hospedagens dentro do app — veja o que está
+                    disponível agora em <span className="text-foreground">{city.name}</span>{" "}
+                    direto no Booking.com.
+                  </p>
+                  <a
+                    href={buildBookingUrl(city, country)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 flex items-center justify-center gap-1.5 rounded-xl border border-primary/40 bg-primary/10 px-4 py-2.5 text-xs font-semibold text-primary transition hover:bg-primary/20"
+                  >
+                    Ver hospedagens em {city.name}
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                  <p className="mt-2 text-[10px] text-muted-foreground/60">
+                    Abre o Booking.com em uma nova aba.
+                  </p>
+                </div>
+              </section>
             </div>
           </motion.aside>
         </>
