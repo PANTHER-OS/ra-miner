@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, MapPin, Users, Landmark, Languages, Coins, Sparkles, Plane, MapPinned, ShieldAlert, Compass, ChevronRight } from "lucide-react";
+import { X, MapPin, Users, Landmark, Languages, Coins, Sparkles, Plane, MapPinned, ShieldAlert, Compass, ChevronRight, GitCompare } from "lucide-react";
 import { toast } from "sonner";
 import type { Country } from "@/lib/countries";
 import { formatPopulation, getPtName, getPtOfficialName, getRegionPt, getSubregionPt, translateCurrency, translateLanguage } from "@/lib/countries";
@@ -19,9 +19,12 @@ interface Props {
   country: Country | null;
   onClose: () => void;
   onOpenCity?: (city: CityEntry) => void;
+  compareList?: Country[];
+  onToggleCompare?: (c: Country) => void;
 }
 
-export function CountryPanel({ country, onClose, onOpenCity }: Props) {
+export function CountryPanel({ country, onClose, onOpenCity, compareList, onToggleCompare }: Props) {
+  const inCompare = Boolean(country && compareList?.some((c) => c.cca2 === country.cca2));
   const passport = usePassport();
   const [confirmUnverify, setConfirmUnverify] = useState(false);
 
@@ -171,6 +174,20 @@ export function CountryPanel({ country, onClose, onOpenCity }: Props) {
                 >
                   <MapPinned className={`h-4 w-4 ${status === "wishlist" ? "fill-current" : ""}`} />
                 </button>
+                {onToggleCompare && (
+                  <button
+                    onClick={() => onToggleCompare(country)}
+                    aria-label={inCompare ? "Remover da comparação" : "Adicionar à comparação"}
+                    title={inCompare ? "Remover da comparação" : "Comparar com outro país"}
+                    className={`grid h-9 w-9 place-items-center rounded-full border backdrop-blur transition-all ${
+                      inCompare
+                        ? "border-primary/60 bg-primary/25 text-primary shadow-glow"
+                        : "border-border bg-surface/80 text-muted-foreground hover:border-primary/50 hover:text-primary"
+                    }`}
+                  >
+                    <GitCompare className="h-4 w-4" />
+                  </button>
+                )}
               </div>
 
               <div className="absolute inset-x-5 bottom-3">
