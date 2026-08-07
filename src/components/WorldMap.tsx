@@ -49,16 +49,6 @@ const CITY_MARKER_LIMIT = 60; // teto defensivo pra não poluir em regiões muit
 
 type VisibleCity = CityWithCountry & { showLabel: boolean };
 
-// Quando 2+ marcadores caem tão perto na tela que ficam grudados — bairros
-// da mesma cidade, distritos de um país minúsculo como Mônaco — não tem
-// zoom que resolva isso sozinho (a distância real entre eles é curta
-// demais). A solução é agrupar: em vez de pontos impossíveis de separar
-// com o dedo, um único alvo maior e clicável, que ao ser tocado mostra a
-// lista pra escolher o lugar certo.
-type CityGroup =
-  | { kind: "single"; city: VisibleCity }
-  | { kind: "cluster"; cities: CityWithCountry[]; px: number; py: number; lng: number; lat: number };
-
 function cityMarkerColor(c: { capital?: boolean; landmark?: boolean }): string {
   if (c.landmark) return "oklch(0.72 0.14 155)"; // verde — marco natural
   if (c.capital) return "var(--map-selected)"; // dourado — capital
@@ -85,9 +75,49 @@ interface CountryPin {
   py: number;
 }
 
-type CountryPinGroup =
-  | { kind: "single"; pin: CountryPin; showLabel: boolean }
-  | { kind: "cluster"; pins: CountryPin[]; px: number; py: number; lng: number; lat: number };
+// Cidades e alfinetes de país eram dois sistemas de "evitar sobreposição"
+// TOTALMENTE separados — cada um só verificava colisão contra o próprio
+// tipo. Resultado: um país pequeno (Mônaco, San Marino...) podia acabar
+// exatamente em cima do rótulo ou do ponto de uma cidade vizinha, porque
+// nenhum dos dois sistemas sabia da existência do outro. A correção é
+// tratar os dois como um único grupo de "coisas que ocupam espaço na
+// tela" — mesmo cálculo de agrupamento e de rótulo, rodando uma vez só,
+// considerando cidade e país juntos.
+type MarkerPoint = { kind: "city"; city: CityWithCountry } | { kind: "country"; pin: CountryPin };
+
+function markerPx(p: MarkerPoint): number {
+  return p.kind === "city" ? p.city.px : p.pin.px;
+}
+function markerPy(p: MarkerPoint): number {
+  return p.kind === "city" ? p.city.py : p.pin.py;
+}
+function markerLngLat(p: MarkerPoint): [number, number] {
+  return p.kind === "city" ? [p.city.lng, p.city.lat] : [p.pin.lng, p.pin.lat];
+}
+// Cor do círculo quando vira cluster: se o item mais relevante do grupo
+// (o "âncora") é uma cidade, usa a cor dela; se é um país sem forma
+// própria, usa o azul do alfinete de bandeira.
+function markerClusterColor(anchor: MarkerPoint): string {
+  return anchor.kind === "city" ? cityMarkerColor(anchor.city) : COUNTRY_PIN_COLOR;
+}
+function markerLabelText(p: MarkerPoint): string {
+  return p.kind === "city" ? p.city.name : getPtName(p.pin.country);
+}
+// Um nome curto ("Riga") e um comprido ("Podgorica") ocupam larguras bem
+// diferentes na tela — usar um raio de colisão fixo pra todo mundo deixava
+// nomes longos ainda colidindo com o vizinho mesmo "sem estar perto demais"
+// pelo critério do nome curto. Aproxima a metade da largura real do texto
+// renderizado (fonte 9.5px, negrito) a partir do nº de caracteres.
+function labelRadiusPx(text: string): number {
+  const approxCharWidth = 4.6;
+  const halfWidth = (text.length * approxCharWidth) / 2 + 6;
+  return Math.max(20, halfWidth);
+}
+
+type MarkerGroup =
+  | { kind: "city"; city: VisibleCity }
+  | { kind: "country"; pin: CountryPin; showLabel: boolean }
+  | { kind: "cluster"; items: MarkerPoint[]; px: number; py: number; lng: number; lat: number };
 
 // O popover de "vários lugares aqui perto" serve tanto pra cidades quanto
 // pra países sem forma no mapa — cada item sabe escolher a própria ação.
@@ -302,20 +332,12 @@ function WorldMapInner({
   }, []);
 
   const handleClickCluster = useCallback(
-    (e: React.MouseEvent, cities: CityWithCountry[]) => {
+    (e: React.MouseEvent, items: MarkerPoint[]) => {
       openPopover(
         e,
-        cities.map((c): PopoverItem => ({ kind: "city", ref: c })),
-      );
-    },
-    [openPopover],
-  );
-
-  const handleClickCountryCluster = useCallback(
-    (e: React.MouseEvent, list: Country[]) => {
-      openPopover(
-        e,
-        list.map((c): PopoverItem => ({ kind: "country", ref: c })),
+        items.map((p): PopoverItem =>
+          p.kind === "city" ? { kind: "city", ref: p.city } : { kind: "country", ref: p.pin.country },
+        ),
       );
     },
     [openPopover],
@@ -347,60 +369,6 @@ function WorldMapInner({
     };
   }, [popover]);
 
-  // Cidades visíveis na área atual do mapa — não depende de nenhum país
-  // estar selecionado: é só dar zoom em qualquer lugar do mundo. Quanto
-  // mais perto, mais cidades (mesmo as "menos principais") vão se somando.
-  // A matemática replica o que o ZoomableGroup já faz internamente: projeta
-  // o centro atual e recorta um retângulo do tamanho da viewBox (800x600)
-  // dividido pelo zoom — sem precisar de nenhuma referência interna da lib.
-  const cityGroups = useMemo<CityGroup[]>(() => {
-    const maxRank = maxCityRankForZoom(zoom);
-    if (maxRank < 0) return [];
-    const [cx, cy] = projectPoint(center[0], center[1]);
-    const visible = getVisibleCities(cx, cy, zoom, maxRank, CITY_MARKER_LIMIT);
-
-    // Passo 1 — agrupamento: quando os CÍRCULOS de dois marcadores ficariam
-    // sobrepostos na tela (bairros da mesma cidade, distritos de um país
-    // minúsculo como Mônaco — nenhum zoom no mundo separa isso, a distância
-    // real é curta demais), junta num único grupo clicável maior. `visible`
-    // já vem ordenado por relevância, então o primeiro membro de cada grupo
-    // é sempre o mais importante — é ele quem "ancora" a posição do grupo.
-    const CLUSTER_RADIUS_PX = 18;
-    const clusterGapProj = CLUSTER_RADIUS_PX / zoom;
-    const rawGroups: CityWithCountry[][] = [];
-    for (const c of visible) {
-      const group = rawGroups.find((g) => {
-        const anchor = g[0];
-        return Math.hypot(anchor.px - c.px, anchor.py - c.py) < clusterGapProj;
-      });
-      if (group) group.push(c);
-      else rawGroups.push([c]);
-    }
-
-    // Passo 2 — declutter de rótulo: só se aplica a marcadores SOZINHOS (um
-    // cluster já tem seu próprio contador, não precisa de nome embaixo). Em
-    // regiões com muitos países pequenos e próximos (Balcãs, Golfo Pérsico,
-    // Caribe...), vários nomes ainda colidiriam entre si mesmo sem cluster —
-    // mantém o ponto no mapa, mas só escreve quem não colide com um rótulo
-    // já desenhado (o nome ainda aparece ao passar o mouse).
-    const MIN_LABEL_GAP_PX = 46;
-    const minGapProj = MIN_LABEL_GAP_PX / zoom;
-    const placedLabels: { px: number; py: number }[] = [];
-
-    return rawGroups.map((g): CityGroup => {
-      if (g.length === 1) {
-        const c = g[0];
-        const tooClose = placedLabels.some(
-          (p) => Math.hypot(p.px - c.px, p.py - c.py) < minGapProj,
-        );
-        if (!tooClose) placedLabels.push({ px: c.px, py: c.py });
-        return { kind: "single", city: { ...c, showLabel: !tooClose } };
-      }
-      const anchor = g[0];
-      return { kind: "cluster", cities: g, px: anchor.px, py: anchor.py, lng: anchor.lng, lat: anchor.lat };
-    });
-  }, [center, zoom]);
-
   // Países sem forma própria na topologia (ver comentário na constante
   // COUNTRY_PIN_REVEAL_ZOOM) — a posição de cada um só precisa ser
   // recalculada quando a LISTA de países ausentes muda, não a cada
@@ -417,46 +385,138 @@ function WorldMapInner({
     return pins;
   }, [countries, presentCcn3]);
 
-  // Mesma lógica de área visível + agrupamento das cidades, aplicada aos
-  // alfinetes de país — assim ilhas próximas (Caribe, Pacífico) ou países
-  // vizinhos minúsculos (Vaticano perto de San Marino) também viram um
-  // cluster único em vez de se atropelarem na tela.
-  const countryPinGroups = useMemo<CountryPinGroup[]>(() => {
-    if (zoom < COUNTRY_PIN_REVEAL_ZOOM || !missingCountryPins.length) return [];
+  // Cidades E alfinetes de país sem forma própria, juntos num único cálculo
+  // de área visível + agrupamento + rótulo — não é preciso selecionar
+  // nenhum país: é só dar zoom em qualquer lugar do mapa. Tratar os dois
+  // tipos como um só grupo é o que garante que um país pequeno (Mônaco, San
+  // Marino...) nunca fique em cima do ponto ou do rótulo de uma cidade
+  // vizinha: antes cada tipo só evitava colidir consigo mesmo, agora os
+  // dois disputam o mesmo espaço na mesma passada.
+  const markerGroups = useMemo<MarkerGroup[]>(() => {
     const [cx, cy] = projectPoint(center[0], center[1]);
-    const halfW = 400 / zoom;
-    const halfH = 300 / zoom;
-    const minX = cx - halfW;
-    const maxX = cx + halfW;
-    const minY = cy - halfH;
-    const maxY = cy + halfH;
-    const visible = missingCountryPins.filter(
-      (p) => p.px >= minX && p.px <= maxX && p.py >= minY && p.py <= maxY,
-    );
 
-    const CLUSTER_RADIUS_PX = 18;
+    const maxRank = maxCityRankForZoom(zoom);
+    const cityPoints: MarkerPoint[] =
+      maxRank < 0
+        ? []
+        : getVisibleCities(cx, cy, zoom, maxRank, CITY_MARKER_LIMIT).map((city) => ({
+            kind: "city" as const,
+            city,
+          }));
+
+    let countryPoints: MarkerPoint[] = [];
+    if (zoom >= COUNTRY_PIN_REVEAL_ZOOM && missingCountryPins.length) {
+      const halfW = 400 / zoom;
+      const halfH = 300 / zoom;
+      const minX = cx - halfW;
+      const maxX = cx + halfW;
+      const minY = cy - halfH;
+      const maxY = cy + halfH;
+      countryPoints = missingCountryPins
+        .filter((p) => p.px >= minX && p.px <= maxX && p.py >= minY && p.py <= maxY)
+        .map((pin) => ({ kind: "country" as const, pin }));
+    }
+
+    // Cidades primeiro (já vêm ordenadas por relevância) — quando um país
+    // pequeno cai perto de uma cidade conhecida, o cluster resultante
+    // ancora na cidade, que é o ponto de referência mais útil dos dois.
+    const all: MarkerPoint[] = [...cityPoints, ...countryPoints];
+
+    // Passo 1 — agrupamento: quando os CÍRCULOS de dois marcadores
+    // (cidade ou país, tanto faz) ficariam sobrepostos na tela — bairros da
+    // mesma cidade, distritos de um país minúsculo como Mônaco, ou um país
+    // minúsculo colado numa cidade vizinha — não tem zoom que resolva isso
+    // sozinho (a distância real é curta demais). Junta num único grupo
+    // clicável maior em vez de deixar um cobrindo o outro. 24px (não 18) dá
+    // folga suficiente pra cobrir o pior caso de dois anéis decorativos de
+    // capital (9px de raio cada) quase encostando — com 18 exato, dois
+    // pontos podiam ficar a um triz do limite e escapar do agrupamento
+    // (ex: Podgorica x cidade vizinha nos Bálcãs, ~19px na tela).
+    const CLUSTER_RADIUS_PX = 24;
     const clusterGapProj = CLUSTER_RADIUS_PX / zoom;
-    const rawGroups: CountryPin[][] = [];
-    for (const p of visible) {
-      const group = rawGroups.find((g) => Math.hypot(g[0].px - p.px, g[0].py - p.py) < clusterGapProj);
+    const rawGroups: MarkerPoint[][] = [];
+    for (const p of all) {
+      const px = markerPx(p);
+      const py = markerPy(p);
+      const group = rawGroups.find((g) => {
+        const ax = markerPx(g[0]);
+        const ay = markerPy(g[0]);
+        return Math.hypot(ax - px, ay - py) < clusterGapProj;
+      });
       if (group) group.push(p);
       else rawGroups.push([p]);
     }
 
-    const MIN_LABEL_GAP_PX = 44;
-    const minGapProj = MIN_LABEL_GAP_PX / zoom;
-    const placedLabels: { px: number; py: number }[] = [];
-    return rawGroups.map((g): CountryPinGroup => {
+    // Passo 2 — declutter de rótulo: só se aplica a marcadores SOZINHOS (um
+    // cluster já tem seu próprio contador, não precisa de nome embaixo). Em
+    // regiões com muitos países pequenos e próximos (Balcãs, Golfo Pérsico,
+    // Caribe...), vários nomes ainda colidiriam entre si mesmo sem cluster —
+    // mantém o ponto no mapa, mas só escreve quem não colide com um rótulo
+    // já desenhado (o nome ainda aparece ao passar o mouse). Cidade e país
+    // disputam o mesmo espaço de rótulo aqui também.
+    //
+    // O badge de um cluster (o círculo com o número) TAMBÉM ocupa espaço na
+    // tela — sem reservar esse espaço aqui, um rótulo sozinho nascendo bem
+    // ao lado (ex: "Podgorica"/"Prizren" nos Bálcãs) podia ficar colado ou
+    // por baixo do badge do cluster vizinho. Por isso os clusters entram
+    // primeiro na lista de "espaço já ocupado", com seu próprio raio (menor
+    // que o de um rótulo de texto, já que é só um círculo compacto).
+    const CLUSTER_BADGE_RADIUS_PX = 15; // 11px do círculo + margem
+    const DOT_RADIUS_PX = 9; // maior raio de ponto+anel entre cidade/país (capital: 9px)
+    const obstacles: { px: number; py: number; radiusPx: number }[] = [];
+
+    for (const g of rawGroups) {
+      if (g.length <= 1) continue;
+      const anchor = g[0];
+      obstacles.push({ px: markerPx(anchor), py: markerPy(anchor), radiusPx: CLUSTER_BADGE_RADIUS_PX });
+    }
+
+    // Todo marcador sozinho — mostre rótulo ou não — planta seu PONTO na
+    // lista de obstáculos ANTES de qualquer decisão de rótulo. Sem isso, só
+    // quem era processado DEPOIS evitava quem veio antes (a ordem é por
+    // relevância); o inverso nunca acontecia, e um rótulo importante
+    // processado primeiro (ex: "Belgrade") podia nascer encostando no ponto
+    // de um vizinho pouco relevante que só apareceria mais adiante na lista.
+    // Plantando o ponto (raio pequeno) de todo mundo já de início, e só
+    // "promovendo" pro raio cheio do rótulo quando ele de fato for exibido,
+    // a checagem fica simétrica nos dois sentidos.
+    const singles = rawGroups.filter((g) => g.length === 1).map((g) => g[0]);
+    const obstacleIndexOf = new Map<MarkerPoint, number>();
+    for (const p of singles) {
+      obstacleIndexOf.set(p, obstacles.length);
+      obstacles.push({ px: markerPx(p), py: markerPy(p), radiusPx: DOT_RADIUS_PX });
+    }
+
+    const showLabelOf = new Map<MarkerPoint, boolean>();
+    for (const p of singles) {
+      const px = markerPx(p);
+      const py = markerPy(p);
+      const myIdx = obstacleIndexOf.get(p)!;
+      const myLabelRadius = labelRadiusPx(markerLabelText(p));
+      const tooClose = obstacles.some((ob, i) => {
+        if (i === myIdx) return false;
+        const gapProj = (myLabelRadius + ob.radiusPx) / zoom;
+        return Math.hypot(ob.px - px, ob.py - py) < gapProj;
+      });
+      showLabelOf.set(p, !tooClose);
+      // Se ganhou o rótulo, seu próprio obstáculo cresce do tamanho de um
+      // pontinho pro tamanho real do texto — os próximos da fila (menos
+      // relevantes) vão respeitar esse espaço maior.
+      if (!tooClose) obstacles[myIdx].radiusPx = myLabelRadius;
+    }
+
+    return rawGroups.map((g): MarkerGroup => {
       if (g.length === 1) {
         const p = g[0];
-        const tooClose = placedLabels.some((pl) => Math.hypot(pl.px - p.px, pl.py - p.py) < minGapProj);
-        if (!tooClose) placedLabels.push({ px: p.px, py: p.py });
-        return { kind: "single", pin: p, showLabel: !tooClose };
+        const showLabel = showLabelOf.get(p) ?? false;
+        if (p.kind === "city") return { kind: "city", city: { ...p.city, showLabel } };
+        return { kind: "country", pin: p.pin, showLabel };
       }
       const anchor = g[0];
-      return { kind: "cluster", pins: g, px: anchor.px, py: anchor.py, lng: anchor.lng, lat: anchor.lat };
+      const [lng, lat] = markerLngLat(anchor);
+      return { kind: "cluster", items: g, px: markerPx(anchor), py: markerPy(anchor), lng, lat };
     });
-  }, [missingCountryPins, center, zoom]);
+  }, [center, zoom, missingCountryPins]);
 
   // Todo o conteúdo do SVG (esferas, meridianos, países) fica memoizado à
   // parte: só recalcula quando algo que realmente muda a pintura do mapa
@@ -604,165 +664,141 @@ function WorldMapInner({
           </Marker>
         )}
 
-        {/* Cidades visíveis na área do mapa — reveladas aos poucos conforme o
-            zoom aumenta, cada uma "entrando" com uma animação suave. Marcadores
-            que ficariam grudados na tela (sem zoom que resolva) viram um
-            único cluster clicável com contador. */}
+        {/* Cidades E alfinetes de país sem forma própria — um único pipeline
+            de posicionamento (ver markerGroups acima), revelados aos poucos
+            conforme o zoom aumenta, cada um "entrando" com uma animação
+            suave. Marcadores que ficariam grudados na tela (sem zoom que
+            resolva) viram um único cluster clicável com contador, seja qual
+            for a mistura de cidade(s) e/ou país(es) minúsculo(s) ali. */}
         <AnimatePresence>
-          {cityGroups.map((g, i) =>
-            g.kind === "single" ? (
-              <Marker key={`${g.city.cca2}-${g.city.name}`} coordinates={[g.city.lng, g.city.lat]}>
-                <motion.g
-                  initial={{ opacity: 0, scale: 0.3 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.3 }}
-                  transition={{ delay: Math.min(i, 14) * 0.035, type: "spring", stiffness: 320, damping: 22 }}
-                  onMouseEnter={() => handleEnterCity(g.city)}
-                  onMouseLeave={handleLeaveCity}
-                  onClick={() => handleClickCity(g.city)}
-                  style={{ cursor: "pointer" }}
-                >
-                  <circle
-                    r={(g.city.capital ? 5 : 3.6) / zoom}
-                    fill={cityMarkerColor(g.city)}
-                    stroke="oklch(0.14 0.02 260)"
-                    strokeWidth={1.1 / zoom}
-                  />
-                  <circle
-                    r={(g.city.capital ? 9 : 7) / zoom}
-                    fill="none"
-                    stroke={cityMarkerColor(g.city)}
-                    strokeWidth={0.8 / zoom}
-                    opacity={0.35}
-                    // Só decoração — sem isso, a fina faixa da borda conta
-                    // como área de hover (mesmo sendo "vazada" por dentro),
-                    // e o vão entre ela e a bolinha sólida do centro faz o
-                    // mouse entrar e sair do hover repetidamente ao passar
-                    // por cima, piscando o mapa. Só a bolinha central conta.
-                    style={{ pointerEvents: "none" }}
-                  />
-                  {g.city.showLabel && (
-                    <text
-                      textAnchor="middle"
-                      y={-9 / zoom}
-                      fontSize={9.5 / zoom}
-                      fontWeight={600}
-                      fill="oklch(0.97 0.015 90)"
-                      stroke="oklch(0.1 0.02 260)"
-                      strokeWidth={2.4 / zoom}
-                      paintOrder="stroke"
-                      style={{ pointerEvents: "none" }}
-                    >
-                      {g.city.name}
-                    </text>
-                  )}
-                </motion.g>
-              </Marker>
-            ) : (
-              <Marker key={`cluster-${g.cities[0].cca2}-${g.cities[0].name}`} coordinates={[g.lng, g.lat]}>
-                <motion.g
-                  initial={{ opacity: 0, scale: 0.3 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.3 }}
-                  transition={{ delay: Math.min(i, 14) * 0.035, type: "spring", stiffness: 320, damping: 22 }}
-                  onMouseEnter={() => handleEnterCity(g.cities[0])}
-                  onMouseLeave={handleLeaveCity}
-                  onClick={(e) => handleClickCluster(e, g.cities)}
-                  style={{ cursor: "pointer" }}
-                >
-                  <circle
-                    r={11 / zoom}
-                    fill="oklch(0.22 0.03 260)"
-                    stroke={cityMarkerColor(g.cities[0])}
-                    strokeWidth={1.6 / zoom}
-                  />
-                  <text
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    fontSize={10 / zoom}
-                    fontWeight={700}
-                    fill="oklch(0.97 0.015 90)"
-                    style={{ pointerEvents: "none" }}
+          {markerGroups.map((g, i) => {
+            if (g.kind === "city") {
+              return (
+                <Marker key={`city-${g.city.cca2}-${g.city.name}`} coordinates={[g.city.lng, g.city.lat]}>
+                  <motion.g
+                    initial={{ opacity: 0, scale: 0.3 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.3 }}
+                    transition={{ delay: Math.min(i, 14) * 0.035, type: "spring", stiffness: 320, damping: 22 }}
+                    onMouseEnter={() => handleEnterCity(g.city)}
+                    onMouseLeave={handleLeaveCity}
+                    onClick={() => handleClickCity(g.city)}
+                    style={{ cursor: "pointer" }}
                   >
-                    {g.cities.length}
-                  </text>
-                </motion.g>
-              </Marker>
-            ),
-          )}
-        </AnimatePresence>
+                    <circle
+                      r={(g.city.capital ? 5 : 3.6) / zoom}
+                      fill={cityMarkerColor(g.city)}
+                      stroke="oklch(0.14 0.02 260)"
+                      strokeWidth={1.1 / zoom}
+                    />
+                    <circle
+                      r={(g.city.capital ? 9 : 7) / zoom}
+                      fill="none"
+                      stroke={cityMarkerColor(g.city)}
+                      strokeWidth={0.8 / zoom}
+                      opacity={0.35}
+                      // Só decoração — sem isso, a fina faixa da borda conta
+                      // como área de hover (mesmo sendo "vazada" por dentro),
+                      // e o vão entre ela e a bolinha sólida do centro faz o
+                      // mouse entrar e sair do hover repetidamente ao passar
+                      // por cima, piscando o mapa. Só a bolinha central conta.
+                      style={{ pointerEvents: "none" }}
+                    />
+                    {g.city.showLabel && (
+                      <text
+                        textAnchor="middle"
+                        y={-9 / zoom}
+                        fontSize={9.5 / zoom}
+                        fontWeight={600}
+                        fill="oklch(0.97 0.015 90)"
+                        stroke="oklch(0.1 0.02 260)"
+                        strokeWidth={2.4 / zoom}
+                        paintOrder="stroke"
+                        style={{ pointerEvents: "none" }}
+                      >
+                        {g.city.name}
+                      </text>
+                    )}
+                  </motion.g>
+                </Marker>
+              );
+            }
 
-        {/* Alfinetes de reserva pra países sem forma própria na topologia
-            (Mônaco, Liechtenstein, San Marino, Malta, Andorra, várias ilhas
-            do Caribe e do Pacífico...) — sem isso, esses países não têm
-            NENHUM jeito de serem clicados no mapa, só pela busca. Clicar
-            aqui funciona exatamente como clicar na forma de um país normal. */}
-        <AnimatePresence>
-          {countryPinGroups.map((g, i) =>
-            g.kind === "single" ? (
-              <Marker key={`pin-${g.pin.country.cca2}`} coordinates={[g.pin.lng, g.pin.lat]}>
-                <motion.g
-                  initial={{ opacity: 0, scale: 0.3 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.3 }}
-                  transition={{ delay: Math.min(i, 14) * 0.035, type: "spring", stiffness: 320, damping: 22 }}
-                  onMouseEnter={() => handleEnterCountry(g.pin.country)}
-                  onMouseLeave={handleLeaveCountry}
-                  onClick={() => handleClickCountry(g.pin.country)}
-                  style={{ cursor: "pointer" }}
-                >
-                  <defs>
-                    <clipPath id={`flagclip-${g.pin.country.cca2}`}>
-                      <circle r={6.5 / zoom} />
-                    </clipPath>
-                  </defs>
-                  <circle
-                    r={8 / zoom}
-                    fill="oklch(0.16 0.02 260)"
-                    stroke={COUNTRY_PIN_COLOR}
-                    strokeWidth={1.6 / zoom}
-                  />
-                  <image
-                    href={g.pin.country.flags.png}
-                    x={-6.5 / zoom}
-                    y={-6.5 / zoom}
-                    width={13 / zoom}
-                    height={13 / zoom}
-                    clipPath={`url(#flagclip-${g.pin.country.cca2})`}
-                    preserveAspectRatio="xMidYMid slice"
-                    style={{ pointerEvents: "none" }}
-                  />
-                  {g.showLabel && (
-                    <text
-                      textAnchor="middle"
-                      y={-10 / zoom}
-                      fontSize={9.5 / zoom}
-                      fontWeight={600}
-                      fill="oklch(0.97 0.015 90)"
-                      stroke="oklch(0.1 0.02 260)"
-                      strokeWidth={2.4 / zoom}
-                      paintOrder="stroke"
+            if (g.kind === "country") {
+              return (
+                <Marker key={`pin-${g.pin.country.cca2}`} coordinates={[g.pin.lng, g.pin.lat]}>
+                  <motion.g
+                    initial={{ opacity: 0, scale: 0.3 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.3 }}
+                    transition={{ delay: Math.min(i, 14) * 0.035, type: "spring", stiffness: 320, damping: 22 }}
+                    onMouseEnter={() => handleEnterCountry(g.pin.country)}
+                    onMouseLeave={handleLeaveCountry}
+                    onClick={() => handleClickCountry(g.pin.country)}
+                    style={{ cursor: "pointer" }}
+                  >
+                    <defs>
+                      <clipPath id={`flagclip-${g.pin.country.cca2}`}>
+                        <circle r={6.5 / zoom} />
+                      </clipPath>
+                    </defs>
+                    <circle
+                      r={8 / zoom}
+                      fill="oklch(0.16 0.02 260)"
+                      stroke={COUNTRY_PIN_COLOR}
+                      strokeWidth={1.6 / zoom}
+                    />
+                    <image
+                      href={g.pin.country.flags.png}
+                      x={-6.5 / zoom}
+                      y={-6.5 / zoom}
+                      width={13 / zoom}
+                      height={13 / zoom}
+                      clipPath={`url(#flagclip-${g.pin.country.cca2})`}
+                      preserveAspectRatio="xMidYMid slice"
                       style={{ pointerEvents: "none" }}
-                    >
-                      {getPtName(g.pin.country)}
-                    </text>
-                  )}
-                </motion.g>
-              </Marker>
-            ) : (
-              <Marker key={`pincluster-${g.pins[0].country.cca2}`} coordinates={[g.lng, g.lat]}>
+                    />
+                    {g.showLabel && (
+                      <text
+                        textAnchor="middle"
+                        y={-10 / zoom}
+                        fontSize={9.5 / zoom}
+                        fontWeight={600}
+                        fill="oklch(0.97 0.015 90)"
+                        stroke="oklch(0.1 0.02 260)"
+                        strokeWidth={2.4 / zoom}
+                        paintOrder="stroke"
+                        style={{ pointerEvents: "none" }}
+                      >
+                        {getPtName(g.pin.country)}
+                      </text>
+                    )}
+                  </motion.g>
+                </Marker>
+              );
+            }
+
+            // Cluster — pode ser só cidades, só países sem forma, ou uma
+            // mistura dos dois; a cor segue o item mais relevante do grupo.
+            const anchor = g.items[0];
+            const key =
+              anchor.kind === "city"
+                ? `cluster-${anchor.city.cca2}-${anchor.city.name}`
+                : `cluster-${anchor.pin.country.cca2}`;
+            return (
+              <Marker key={key} coordinates={[g.lng, g.lat]}>
                 <motion.g
                   initial={{ opacity: 0, scale: 0.3 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.3 }}
                   transition={{ delay: Math.min(i, 14) * 0.035, type: "spring", stiffness: 320, damping: 22 }}
-                  onClick={(e) => handleClickCountryCluster(e, g.pins.map((p) => p.country))}
+                  onClick={(e) => handleClickCluster(e, g.items)}
                   style={{ cursor: "pointer" }}
                 >
                   <circle
                     r={11 / zoom}
-                    fill="oklch(0.18 0.035 230)"
-                    stroke={COUNTRY_PIN_COLOR}
+                    fill="oklch(0.2 0.032 245)"
+                    stroke={markerClusterColor(anchor)}
                     strokeWidth={1.6 / zoom}
                   />
                   <text
@@ -773,12 +809,12 @@ function WorldMapInner({
                     fill="oklch(0.97 0.015 90)"
                     style={{ pointerEvents: "none" }}
                   >
-                    {g.pins.length}
+                    {g.items.length}
                   </text>
                 </motion.g>
               </Marker>
-            ),
-          )}
+            );
+          })}
         </AnimatePresence>
       </>
     );
@@ -796,13 +832,11 @@ function WorldMapInner({
     handleEnterCountry,
     handleLeaveCountry,
     handleClickCountry,
-    cityGroups,
+    markerGroups,
     handleEnterCity,
     handleLeaveCity,
     handleClickCity,
     handleClickCluster,
-    countryPinGroups,
-    handleClickCountryCluster,
   ]);
 
   return (
