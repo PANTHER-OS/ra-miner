@@ -33,7 +33,7 @@ type Phase = "quiz" | "calculating" | "results";
 
 const CALC_MESSAGES = [
   "Cruzando suas respostas...",
-  "Comparando com 55 destinos...",
+  "Comparando com destinos do mundo todo...",
   "Lapidando o seu perfil...",
 ];
 
@@ -50,8 +50,8 @@ export function TravelQuiz({ open, onClose, countries, onOpenCountry }: Props) {
   const progress = phase === "quiz" ? Math.round((step / total) * 100) : 100;
 
   const results: QuizResult[] = useMemo(
-    () => (phase === "results" ? computeResults(answers) : []),
-    [phase, answers],
+    () => (phase === "results" ? computeResults(answers, countries) : []),
+    [phase, answers, countries],
   );
   // Ordem de revelação: 3º, 2º, 1º — suspense crescente até o melhor match.
   const podiumOrder = results.length === 3 ? [2, 1, 0] : results.map((_, i) => i);
@@ -440,11 +440,11 @@ export function TravelQuiz({ open, onClose, countries, onOpenCountry }: Props) {
                     transition={{ delay: 0.15 + 3 * 0.22 + 0.15, duration: 0.4 }}
                     className="mt-6 rounded-2xl border border-border/60 bg-background/40 p-4 text-xs leading-relaxed text-muted-foreground"
                   >
-                    Cálculo por similaridade entre o seu perfil e 55 destinos, em
-                    11 dimensões (praia, montanha, cultura, gastronomia,
-                    aventura, custo, clima, choque cultural e mais). Toque num
-                    país para abrir o perfil, o roteiro de 24h e as frases
-                    locais.
+                    Cálculo por similaridade entre o seu perfil e destinos do
+                    mundo todo, em até 11 dimensões (praia, montanha, cultura,
+                    gastronomia, aventura, custo, clima, choque cultural e
+                    mais). Toque num país para abrir o perfil, o roteiro de
+                    24h e as frases locais.
                   </motion.div>
                 </motion.div>
               )}

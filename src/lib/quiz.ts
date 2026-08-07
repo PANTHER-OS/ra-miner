@@ -1,6 +1,8 @@
 // Quiz de Compatibilidade de Viagem
 // Cada país é pontuado em 8 dimensões (0-10). O quiz mapeia respostas para
 // pesos nessas dimensões e calcula um score por país. Resultado: top 3.
+import autoProfilesRaw from "@/data/quiz-auto-profiles.json";
+import { getPtName, getRegionPt, getSubregionPt, type Country } from "./countries";
 
 export type Dimension =
   | "beach"       // praia / mar
@@ -140,6 +142,31 @@ export const PROFILES: CountryProfile[] = [
     scores: { beach:6, mountain:9, urban:5, culture:7, food:7, adventure:10, chill:6, budget:8, warm:7, easy:7, exotic:7 } },
 ];
 
+const CURATED_CODES = new Set(PROFILES.map((p) => p.code));
+
+// Scores calculados (não escritos à mão) pros ~195 países que ficam de fora
+// da lista curada acima — ver scripts/gen-quiz-profiles.mjs pra como cada
+// número é derivado só de dado geográfico já verificado (não é chute de
+// atração turística). Cobre 5 das 11 dimensões; as outras 6 (mountain,
+// culture, food, adventure, chill, budget) ficam ausentes de propósito —
+// computeResults() já trata dimensão ausente como neutra, o que é mais
+// honesto que inventar uma nota.
+const AUTO_SCORES = autoProfilesRaw as Record<string, Partial<Record<Dimension, number>>>;
+
+function buildAutoProfile(country: Country): CountryProfile {
+  const place = getSubregionPt(country.subregion) ?? getRegionPt(country.region);
+  return {
+    code: country.cca2,
+    name: getPtName(country),
+    scores: AUTO_SCORES[country.cca2] ?? {},
+    // Convite genérico, não uma alegação de atração específica — pros
+    // ~195 países sem curadoria não temos como garantir "praia incrível"
+    // ou "comida sensacional" sem ter checado, então o texto fica no
+    // território do que é honesto de afirmar sobre qualquer lugar.
+    tagline: `Um destino da ${place} pra sair do óbvio e descobrir algo novo.`,
+  };
+}
+
 // ------------- Perguntas -------------
 
 export interface QuizChoice {
@@ -245,7 +272,18 @@ export interface QuizResult {
   matchPct: number;
 }
 
-export function computeResults(answers: Answers): QuizResult[] {
+export function computeResults(answers: Answers, countries: Country[] = []): QuizResult[] {
+  // Perfis: os 55 curados à mão + um por país "ao vivo" que ainda não tem
+  // curadoria (usando o score calculado — ver AUTO_SCORES acima). Sem os
+  // `countries` ao vivo, o quiz nunca poderia recomendar nenhum dos outros
+  // ~195 países, não importa a resposta — o resultado sempre vinha só dos
+  // mesmos 55 destinos populares, mesmo quando o padrão de respostas batia
+  // melhor com outro lugar qualquer.
+  const autoProfiles = countries
+    .filter((c) => !CURATED_CODES.has(c.cca2) && AUTO_SCORES[c.cca2])
+    .map(buildAutoProfile);
+  const allProfiles = [...PROFILES, ...autoProfiles];
+
   // 1) Constrói vetor de pesos do usuário somando as escolhas
   const userWeights: Record<string, number> = {};
   for (const q of QUESTIONS) {
@@ -279,7 +317,7 @@ export function computeResults(answers: Answers): QuizResult[] {
   const dims = Object.keys(userWeights).filter((d) => userWeights[d] !== 0);
   const userNorm = Math.sqrt(dims.reduce((sum, d) => sum + userWeights[d] ** 2, 0)) || 1;
 
-  const scored = PROFILES.map((p) => {
+  const scored = allProfiles.map((p) => {
     const countryVec = dims.map((d) => ((p.scores as Record<string, number>)[d] ?? 5) - 5);
     const countryNorm = Math.sqrt(countryVec.reduce((s, v) => s + v * v, 0)) || 1;
 
