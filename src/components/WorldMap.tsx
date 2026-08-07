@@ -119,11 +119,14 @@ function markerLabelText(p: MarkerPoint): string {
 // diferentes na tela — usar um raio de colisão fixo pra todo mundo deixava
 // nomes longos ainda colidindo com o vizinho mesmo "sem estar perto demais"
 // pelo critério do nome curto. Aproxima a metade da largura real do texto
-// renderizado (fonte 9.5px, negrito) a partir do nº de caracteres.
-function labelRadiusPx(text: string): number {
-  const approxCharWidth = 4.6;
-  const halfWidth = (text.length * approxCharWidth) / 2 + 6;
-  return Math.max(20, halfWidth);
+// renderizado (fonte 9.5px, negrito) a partir do nº de caracteres. `scale`
+// acompanha o tamanho de fonte realmente usado no desenho (ver sizeScale)
+// — sem isso, o texto maior no celular voltaria a colidir, já que o
+// cálculo de espaço continuaria pensando no tamanho pequeno de antes.
+function labelRadiusPx(text: string, scale: number): number {
+  const approxCharWidth = 4.6 * scale;
+  const halfWidth = (text.length * approxCharWidth) / 2 + 6 * scale;
+  return Math.max(20 * scale, halfWidth);
 }
 
 type MarkerGroup =
@@ -324,6 +327,19 @@ function WorldMapInner({
   // 0 antes da primeira medição — cai pra 1:1 (sem conversão) só nesse
   // instante inicial, nunca chega a renderizar assim de fato.
   const svgUnitsPerScreenPx = mapWidthPx > 0 ? 800 / mapWidthPx : 1;
+  // O tamanho do PONTO em si (não só a área de toque invisível) e do texto
+  // do rótulo sofrem exatamente do mesmo problema: são um número fixo de
+  // "unidades do viewBox", então nascem pequenos demais pra ler quando o
+  // container é estreito. 1216px é a largura real do mapa num desktop
+  // comum (medida a 1440px de janela, onde o visual já foi validado) — no
+  // celular (~360-400px de largura), esse fator "reescala" ponto, anel e
+  // texto pra cima o suficiente pra ficarem do mesmo tamanho de tela
+  // (pixels de verdade) que já se via no desktop, em vez de encolher junto
+  // com o container. Nunca encolhe nada (Math.max 1) — só cresce quando o
+  // container é mais estreito que a referência, e só no toque, pra não
+  // mudar nada no desktop.
+  const REFERENCE_MAP_WIDTH_PX = 1216;
+  const sizeScale = touchTarget && mapWidthPx > 0 ? Math.max(1, REFERENCE_MAP_WIDTH_PX / mapWidthPx) : 1;
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     const anchor = tooltipAnchorRef.current;
@@ -518,8 +534,12 @@ function WorldMapInner({
     // por baixo do badge do cluster vizinho. Por isso os clusters entram
     // primeiro na lista de "espaço já ocupado", com seu próprio raio (menor
     // que o de um rótulo de texto, já que é só um círculo compacto).
-    const CLUSTER_BADGE_RADIUS_PX = 15; // 11px do círculo + margem
-    const DOT_RADIUS_PX = 9; // maior raio de ponto+anel entre cidade/país (capital: 9px)
+    // Multiplicados por sizeScale porque o DESENHO real (ponto, anel, badge)
+    // também cresce no celular (ver sizeScale) — sem isso, o cálculo de
+    // colisão continuaria pensando no tamanho pequeno de antes e deixaria
+    // passar sobreposições com o desenho maior.
+    const CLUSTER_BADGE_RADIUS_PX = 15 * sizeScale; // 11px do círculo + margem
+    const DOT_RADIUS_PX = 9 * sizeScale; // maior raio de ponto+anel entre cidade/país (capital: 9px)
     const obstacles: { px: number; py: number; radiusPx: number }[] = [];
 
     for (const g of rawGroups) {
@@ -549,7 +569,7 @@ function WorldMapInner({
       const px = markerPx(p);
       const py = markerPy(p);
       const myIdx = obstacleIndexOf.get(p)!;
-      const myLabelRadius = labelRadiusPx(markerLabelText(p));
+      const myLabelRadius = labelRadiusPx(markerLabelText(p), sizeScale);
       const tooClose = obstacles.some((ob, i) => {
         if (i === myIdx) return false;
         const gapProj = (myLabelRadius + ob.radiusPx) / zoom;
@@ -573,7 +593,7 @@ function WorldMapInner({
       const [lng, lat] = markerLngLat(anchor);
       return { kind: "cluster", items: g, px: markerPx(anchor), py: markerPy(anchor), lng, lat };
     });
-  }, [center, zoom, missingCountryPins, touchTarget, svgUnitsPerScreenPx]);
+  }, [center, zoom, missingCountryPins, touchTarget, svgUnitsPerScreenPx, sizeScale]);
 
   // Todo o conteúdo do SVG (esferas, meridianos, países) fica memoizado à
   // parte: só recalcula quando algo que realmente muda a pintura do mapa
@@ -744,16 +764,16 @@ function WorldMapInner({
                   >
                     {touchTarget && <circle r={(TOUCH_HIT_RADIUS_PX * svgUnitsPerScreenPx) / zoom} fill="transparent" />}
                     <circle
-                      r={(g.city.capital ? 5 : 3.6) / zoom}
+                      r={((g.city.capital ? 5 : 3.6) * sizeScale) / zoom}
                       fill={cityMarkerColor(g.city)}
                       stroke="oklch(0.14 0.02 260)"
-                      strokeWidth={1.1 / zoom}
+                      strokeWidth={(1.1 * sizeScale) / zoom}
                     />
                     <circle
-                      r={(g.city.capital ? 9 : 7) / zoom}
+                      r={((g.city.capital ? 9 : 7) * sizeScale) / zoom}
                       fill="none"
                       stroke={cityMarkerColor(g.city)}
-                      strokeWidth={0.8 / zoom}
+                      strokeWidth={(0.8 * sizeScale) / zoom}
                       opacity={0.35}
                       // Só decoração — sem isso, a fina faixa da borda conta
                       // como área de hover (mesmo sendo "vazada" por dentro),
@@ -765,12 +785,12 @@ function WorldMapInner({
                     {g.city.showLabel && (
                       <text
                         textAnchor="middle"
-                        y={-9 / zoom}
-                        fontSize={9.5 / zoom}
+                        y={(-9 * sizeScale) / zoom}
+                        fontSize={(9.5 * sizeScale) / zoom}
                         fontWeight={600}
                         fill="oklch(0.97 0.015 90)"
                         stroke="oklch(0.1 0.02 260)"
-                        strokeWidth={2.4 / zoom}
+                        strokeWidth={(2.4 * sizeScale) / zoom}
                         paintOrder="stroke"
                         style={{ pointerEvents: "none" }}
                       >
@@ -798,21 +818,21 @@ function WorldMapInner({
                     {touchTarget && <circle r={(TOUCH_HIT_RADIUS_PX * svgUnitsPerScreenPx) / zoom} fill="transparent" />}
                     <defs>
                       <clipPath id={`flagclip-${g.pin.country.cca2}`}>
-                        <circle r={6.5 / zoom} />
+                        <circle r={(6.5 * sizeScale) / zoom} />
                       </clipPath>
                     </defs>
                     <circle
-                      r={8 / zoom}
+                      r={(8 * sizeScale) / zoom}
                       fill="oklch(0.16 0.02 260)"
                       stroke={COUNTRY_PIN_COLOR}
-                      strokeWidth={1.6 / zoom}
+                      strokeWidth={(1.6 * sizeScale) / zoom}
                     />
                     <image
                       href={g.pin.country.flags.png}
-                      x={-6.5 / zoom}
-                      y={-6.5 / zoom}
-                      width={13 / zoom}
-                      height={13 / zoom}
+                      x={(-6.5 * sizeScale) / zoom}
+                      y={(-6.5 * sizeScale) / zoom}
+                      width={(13 * sizeScale) / zoom}
+                      height={(13 * sizeScale) / zoom}
                       clipPath={`url(#flagclip-${g.pin.country.cca2})`}
                       preserveAspectRatio="xMidYMid slice"
                       style={{ pointerEvents: "none" }}
@@ -820,12 +840,12 @@ function WorldMapInner({
                     {g.showLabel && (
                       <text
                         textAnchor="middle"
-                        y={-10 / zoom}
-                        fontSize={9.5 / zoom}
+                        y={(-10 * sizeScale) / zoom}
+                        fontSize={(9.5 * sizeScale) / zoom}
                         fontWeight={600}
                         fill="oklch(0.97 0.015 90)"
                         stroke="oklch(0.1 0.02 260)"
-                        strokeWidth={2.4 / zoom}
+                        strokeWidth={(2.4 * sizeScale) / zoom}
                         paintOrder="stroke"
                         style={{ pointerEvents: "none" }}
                       >
@@ -856,15 +876,15 @@ function WorldMapInner({
                 >
                   {touchTarget && <circle r={(TOUCH_HIT_RADIUS_PX * svgUnitsPerScreenPx) / zoom} fill="transparent" />}
                   <circle
-                    r={11 / zoom}
+                    r={(11 * sizeScale) / zoom}
                     fill="oklch(0.2 0.032 245)"
                     stroke={markerClusterColor(anchor)}
-                    strokeWidth={1.6 / zoom}
+                    strokeWidth={(1.6 * sizeScale) / zoom}
                   />
                   <text
                     textAnchor="middle"
                     dominantBaseline="central"
-                    fontSize={10 / zoom}
+                    fontSize={(10 * sizeScale) / zoom}
                     fontWeight={700}
                     fill="oklch(0.97 0.015 90)"
                     style={{ pointerEvents: "none" }}
@@ -899,6 +919,7 @@ function WorldMapInner({
     handleClickCluster,
     touchTarget,
     svgUnitsPerScreenPx,
+    sizeScale,
   ]);
 
   return (
