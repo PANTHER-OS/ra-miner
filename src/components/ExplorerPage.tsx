@@ -16,6 +16,7 @@ import { MapSkeleton } from "@/components/CountrySkeleton";
 import { TravelQuiz } from "@/components/TravelQuiz";
 import { CompareTray } from "@/components/CompareTray";
 import { CompareView } from "@/components/CompareView";
+import { WishlistPanel } from "@/components/WishlistPanel";
 import { PassportStats } from "@/components/PassportStats";
 import { usePassport } from "@/lib/passport";
 import type { PassportStatus } from "@/lib/passport";
@@ -53,6 +54,7 @@ export function ExplorerPage() {
   const [quizOpen, setQuizOpen] = useState(false);
   const [compareList, setCompareList] = useState<Country[]>([]);
   const [compareOpen, setCompareOpen] = useState(false);
+  const [wishlistOpen, setWishlistOpen] = useState(false);
   const passport = usePassport();
 
   const verifiedSet = useMemo(
@@ -295,7 +297,9 @@ export function ExplorerPage() {
 
       {/* Main */}
       <main className="mx-auto flex max-w-7xl flex-col gap-6 px-4 pb-16 pt-6 sm:px-8 sm:pt-8">
-        {countries && <PassportStats countries={countries} />}
+        {countries && (
+          <PassportStats countries={countries} onOpenWishlist={() => setWishlistOpen(true)} />
+        )}
 
         {isLoading || !countries ? (
           <MapSkeleton />
@@ -359,6 +363,13 @@ export function ExplorerPage() {
         onClose={() => setCompareOpen(false)}
         onRemove={removeFromCompare}
         onOpenCountry={openCountryFromCompare}
+      />
+
+      <WishlistPanel
+        open={wishlistOpen}
+        onClose={() => setWishlistOpen(false)}
+        countries={countries ?? []}
+        onOpenCountry={handleSelectCountry}
       />
     </div>
   );
