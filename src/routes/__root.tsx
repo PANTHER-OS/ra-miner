@@ -81,6 +81,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { name: "theme-color", content: "#1a1728" },
+      // iOS ignora o manifest.json pra decidir se roda em tela cheia — só
+      // reconhece essas meta tags específicas (Android/Chrome lê o
+      // manifest normalmente).
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+      { name: "apple-mobile-web-app-title", content: "Mundo em Foco" },
       { title: "Mundo em Foco — Explore os países do mundo" },
       {
         name: "description",
@@ -117,6 +123,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
       { rel: "icon", href: "/favicon.ico", sizes: "any" },
       { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
+      // Registra o app como instalável (ícone de "Adicionar à tela inicial"
+      // aparece no Chrome/Android sem precisar de nenhum código próprio de
+      // service worker) — ver public/manifest.json.
+      { rel: "manifest", href: "/manifest.json" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {

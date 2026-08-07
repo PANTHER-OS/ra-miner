@@ -1,0 +1,32 @@
+{
+  "name": "Mundo em Foco — Explore os países do mundo",
+  "short_name": "Mundo em Foco",
+  "description": "Um explorador interativo de países do mundo. Navegue pelo mapa, descubra curiosidades e monte seu passaporte de viagem.",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#1a1728",
+  "theme_color": "#1a1728",
+  "orientation": "portrait-primary",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
