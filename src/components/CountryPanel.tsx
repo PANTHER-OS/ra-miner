@@ -103,13 +103,23 @@ export function CountryPanel({ country, onClose, onOpenCity }: Props) {
           />
 
           {/* Panel */}
+          {/* max-h-[92dvh], não 92vh: no Safari do iPhone, "vh" mede a
+              altura da tela com a barra de endereço RECOLHIDA (o maior
+              tamanho possível) — não a altura realmente visível no momento.
+              Com a barra ainda visível (o normal ao abrir o painel), 92vh
+              ficava mais alto que a tela de verdade e empurrava o topo do
+              painel — botão de fechar incluído — pra fora da área visível,
+              parecendo que o país "tampava" a tela sem jeito de voltar.
+              "dvh" (dynamic viewport height) acompanha a altura visível de
+              verdade em tempo real, recolhendo ou crescendo junto com a
+              barra do navegador. */}
           <motion.aside
             key={country.cca2}
             initial={{ x: "100%", opacity: 0.5 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: "100%", opacity: 0 }}
             transition={{ type: "spring", stiffness: 260, damping: 30 }}
-            className="fixed inset-x-0 bottom-0 top-auto z-50 flex max-h-[92vh] flex-col overflow-hidden rounded-t-3xl border-t border-border bg-surface-elevated/95 shadow-panel backdrop-blur-xl sm:inset-y-0 sm:right-0 sm:left-auto sm:top-0 sm:h-full sm:max-h-none sm:w-full sm:max-w-md sm:rounded-l-3xl sm:rounded-tr-none sm:border-l sm:border-t-0"
+            className="fixed inset-x-0 bottom-0 top-auto z-50 flex max-h-[92dvh] flex-col overflow-hidden rounded-t-3xl border-t border-border bg-surface-elevated/95 shadow-panel backdrop-blur-xl sm:inset-y-0 sm:right-0 sm:left-auto sm:top-0 sm:h-full sm:max-h-none sm:w-full sm:max-w-md sm:rounded-l-3xl sm:rounded-tr-none sm:border-l sm:border-t-0"
             role="dialog"
             aria-labelledby="country-panel-title"
           >
