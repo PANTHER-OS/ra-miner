@@ -11,6 +11,7 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { BASE_URL } from "../lib/site";
 
 function NotFoundComponent() {
   return (
@@ -91,7 +92,23 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
           "Explore o mundo em um mapa interativo. Descubra dados, curiosidades e o interesse global por cada país.",
       },
       { property: "og:type", content: "website" },
+      { property: "og:url", content: BASE_URL },
+      // Sem og:image/twitter:image, um link do site compartilhado no
+      // WhatsApp/Instagram/Twitter não mostrava NENHUMA prévia visual —
+      // grave pra um produto que é, literalmente, um mapa bonito. A imagem
+      // é gerada estaticamente (public/og-image.png) na identidade visual
+      // do próprio app (mesma paleta e fonte de título).
+      { property: "og:image", content: `${BASE_URL}/og-image.png` },
+      { property: "og:image:width", content: "1200" },
+      { property: "og:image:height", content: "630" },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: "Mundo em Foco" },
+      {
+        name: "twitter:description",
+        content:
+          "Explore o mundo em um mapa interativo. Descubra dados, curiosidades e o interesse global por cada país.",
+      },
+      { name: "twitter:image", content: `${BASE_URL}/og-image.png` },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
