@@ -8,6 +8,8 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
+import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -138,6 +140,14 @@ function RootShell({ children }: { children: ReactNode }) {
       </head>
       <body>
         {children}
+        {/* Analytics do próprio Vercel (onde o app já está hospedado): sem
+            cookie, sem banner de consentimento, sem conta em outro lugar —
+            só visitas/páginas mais vistas, essencial pra saber quais países
+            e cidades as pessoas mais visitam antes de decidir onde investir
+            em conteúdo ou, no futuro, priorizar pra parcerias/comissão de
+            hospedagem. */}
+        <Analytics />
+        <SpeedInsights />
         <Scripts />
       </body>
     </html>
