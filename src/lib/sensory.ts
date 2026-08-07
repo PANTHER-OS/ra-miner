@@ -1,23 +1,46 @@
 // Vitrine sensorial: hora local, clima ao vivo e palavra do dia.
 
-// Converte "UTC-03:00" ou "UTC+05:30" em minutos de offset.
-export function tzOffsetMinutes(tz: string): number | null {
-  const m = /^UTC([+-])(\d{2}):(\d{2})$/.exec(tz.trim());
-  if (!m) return null;
-  const sign = m[1] === "+" ? 1 : -1;
-  return sign * (parseInt(m[2], 10) * 60 + parseInt(m[3], 10));
+// `country.timezone` guarda um fuso IANA de verdade (ex: "Europe/Berlin"),
+// gerado em build a partir da coordenada exata da capital de cada país (ver
+// scripts/gen-timezones.mjs) — a mledoze/countries removeu o campo antigo de
+// fuso ("UTC-03:00" etc.) da base inteira, então essa é a substituição.
+// Usar o nome IANA em vez de um offset fixo também corrige de brinde um
+// problema que já existia antes: o offset UTC de países com horário de
+// verão mudava ao longo do ano e o cálculo manual antigo nunca acompanhava
+// isso. `Intl.DateTimeFormat` com `timeZone` resolve hora E offset certos
+// pra qualquer data, o ano inteiro.
+function offsetLabelFor(tz: string, now: Date): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    timeZoneName: "shortOffset",
+  }).formatToParts(now);
+  const raw = parts.find((p) => p.type === "timeZoneName")?.value ?? "UTC";
+  // "GMT-3" / "GMT+5:30" -> "UTC-3" / "UTC+5:30" (rótulo já usado na UI)
+  return raw.replace(/^GMT/, "UTC").replace(/^UTC$/, "UTC+0");
 }
 
-export function localTimeFor(tz: string | undefined, now = new Date()): { hh: string; mm: string; ss: string; label: string } | null {
+export function localTimeFor(
+  tz: string | undefined,
+  now = new Date(),
+): { hh: string; mm: string; ss: string; label: string } | null {
   if (!tz) return null;
-  const off = tzOffsetMinutes(tz);
-  if (off == null) return null;
-  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
-  const local = new Date(utc + off * 60000);
-  const hh = String(local.getHours()).padStart(2, "0");
-  const mm = String(local.getMinutes()).padStart(2, "0");
-  const ss = String(local.getSeconds()).padStart(2, "0");
-  return { hh, mm, ss, label: tz };
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }).formatToParts(now);
+    const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "00";
+    // "24" é a forma que Intl usa pra meia-noite em hour12:false — normaliza pra "00".
+    const hh = get("hour") === "24" ? "00" : get("hour");
+    return { hh, mm: get("minute"), ss: get("second"), label: offsetLabelFor(tz, now) };
+  } catch {
+    // Nome de fuso inválido/desconhecido no motor JS — mostra "indisponível"
+    // em vez de quebrar o painel inteiro.
+    return null;
+  }
 }
 
 // Weather code → PT description + emoji (Open-Meteo WMO codes).

@@ -9,7 +9,7 @@ export function SensoryPanel({ country }: { country: Country }) {
   const [wx, setWx] = useState<WeatherNow | null>(null);
   const [wxErr, setWxErr] = useState(false);
 
-  const tz = country.timezones?.[0];
+  const tz = country.timezone;
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);

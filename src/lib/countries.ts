@@ -17,7 +17,10 @@ export interface Country {
   latlng?: [number, number];
   area?: number;
   translations?: Record<string, { common: string; official: string }>;
-  timezones?: string[];
+  // Fuso IANA (ex: "Europe/Berlin") gerado em build a partir da coordenada
+  // exata da capital — ver scripts/gen-timezones.mjs. A mledoze/countries
+  // removeu o campo de fuso original da base inteira; isso substitui.
+  timezone?: string;
 }
 
 const FIELDS = [
