@@ -67,6 +67,18 @@ function cityMarkerColor(c: { capital?: boolean; landmark?: boolean }): string {
 const COUNTRY_PIN_REVEAL_ZOOM = 1.6;
 const COUNTRY_PIN_COLOR = "oklch(0.75 0.13 220)"; // azul — distingue de cidade (dourado) e marco natural (verde)
 
+// O ponto/anel visual de um marcador é pensado pra ficar discreto (uns 4 a
+// 9px de raio) — ótimo pro mouse, mas minúsculo demais pro dedo, mesmo no
+// zoom máximo. Em vez de aumentar o desenho (o que voltaria a poluir/colidir
+// visualmente, o problema que acabamos de resolver), soma-se uma área de
+// toque INVISÍVEL bem maior por baixo, só em dispositivo de toque — o
+// visual não muda em nada, só fica bem mais fácil de acertar. 20px de raio
+// (40px de diâmetro) está logo abaixo do mínimo de 44pt recomendado pela
+// Apple/Google, com folga garantida pelo CLUSTER_RADIUS_PX de toque (44px):
+// como só sobra sozinho na tela quem está a pelo menos 44px de qualquer
+// outro marcador, duas áreas de toque de 20px nunca se sobrepõem.
+const TOUCH_HIT_RADIUS_PX = 20;
+
 interface CountryPin {
   country: Country;
   lat: number;
@@ -176,6 +188,22 @@ function WorldMapInner({
   // zoom/pan interno da biblioteca herde uma transformação antiga e volte
   // deslocado para um dos lados em vez de perfeitamente centralizado.
   const [mapInstanceKey, setMapInstanceKey] = useState(0);
+  // Num toque, o dedo cobre uma área bem maior que a ponta de um cursor de
+  // mouse — o ponto/anel visual de um marcador (pensado pra ficar discreto e
+  // elegante) é chances mínimas de acertar de primeira num celular, mesmo no
+  // zoom máximo (16x). "hover: none" é a forma padrão de detectar um
+  // dispositivo cujo ponteiro PRINCIPAL é toque (não um mouse com touchscreen
+  // acoplada) — só nesses casos alargamos a área de toque e o raio de
+  // agrupamento, sem mexer em nada no desktop.
+  const [touchTarget, setTouchTarget] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(hover: none) and (pointer: coarse)");
+    const update = () => setTouchTarget(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
   const wrapRef = useRef<HTMLDivElement>(null);
   const tooltipAnchorRef = useRef<HTMLDivElement>(null);
   const rectRef = useRef<DOMRect | null>(null);
@@ -274,6 +302,28 @@ function WorldMapInner({
     window.addEventListener("resize", refreshRect);
     return () => window.removeEventListener("resize", refreshRect);
   }, [refreshRect]);
+
+  // Todo raio de marcador é escrito em "unidades do viewBox" (a caixa
+  // interna de 800x600 do mapa) e não em pixels de tela — o navegador
+  // escala essa caixa pra caber na largura REAL do container. Num celular
+  // (~360px de largura), essa escala é bem menor que num desktop
+  // (~1200px+), então o MESMO raio nominal nasce visualmente bem menor no
+  // celular. É essa conversão implícita — não só o tamanho do ponto em si —
+  // que fazia a área de toque real ficar minúscula. Medindo a largura real
+  // do container, dá pra calcular quantas "unidades do viewBox" equivalem a
+  // um alvo de X pixels de tela de verdade, não importa o tamanho da tela.
+  const [mapWidthPx, setMapWidthPx] = useState(0);
+  useEffect(() => {
+    const measure = () => {
+      if (wrapRef.current) setMapWidthPx(wrapRef.current.getBoundingClientRect().width);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [layoutSettled]);
+  // 0 antes da primeira medição — cai pra 1:1 (sem conversão) só nesse
+  // instante inicial, nunca chega a renderizar assim de fato.
+  const svgUnitsPerScreenPx = mapWidthPx > 0 ? 800 / mapWidthPx : 1;
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     const anchor = tooltipAnchorRef.current;
@@ -432,7 +482,14 @@ function WorldMapInner({
     // capital (9px de raio cada) quase encostando — com 18 exato, dois
     // pontos podiam ficar a um triz do limite e escapar do agrupamento
     // (ex: Podgorica x cidade vizinha nos Bálcãs, ~19px na tela).
-    const CLUSTER_RADIUS_PX = 24;
+    //
+    // Num toque, o raio sobe pro equivalente a 44px de TELA (não unidades
+    // do viewBox — ver svgUnitsPerScreenPx acima) — o suficiente pra cobrir
+    // a área de toque alargada (ver TOUCH_HIT_RADIUS_PX) sem duas ficarem
+    // coladas uma na outra. Fora isso, é a mesma lógica de sempre: só vira
+    // cluster quem realmente estaria "colado" na tela; um toque impreciso
+    // ainda cai no marcador mais próximo, ou abre o popover pra escolher.
+    const CLUSTER_RADIUS_PX = touchTarget ? 44 * svgUnitsPerScreenPx : 24;
     const clusterGapProj = CLUSTER_RADIUS_PX / zoom;
     const rawGroups: MarkerPoint[][] = [];
     for (const p of all) {
@@ -516,7 +573,7 @@ function WorldMapInner({
       const [lng, lat] = markerLngLat(anchor);
       return { kind: "cluster", items: g, px: markerPx(anchor), py: markerPy(anchor), lng, lat };
     });
-  }, [center, zoom, missingCountryPins]);
+  }, [center, zoom, missingCountryPins, touchTarget, svgUnitsPerScreenPx]);
 
   // Todo o conteúdo do SVG (esferas, meridianos, países) fica memoizado à
   // parte: só recalcula quando algo que realmente muda a pintura do mapa
@@ -685,6 +742,7 @@ function WorldMapInner({
                     onClick={() => handleClickCity(g.city)}
                     style={{ cursor: "pointer" }}
                   >
+                    {touchTarget && <circle r={(TOUCH_HIT_RADIUS_PX * svgUnitsPerScreenPx) / zoom} fill="transparent" />}
                     <circle
                       r={(g.city.capital ? 5 : 3.6) / zoom}
                       fill={cityMarkerColor(g.city)}
@@ -737,6 +795,7 @@ function WorldMapInner({
                     onClick={() => handleClickCountry(g.pin.country)}
                     style={{ cursor: "pointer" }}
                   >
+                    {touchTarget && <circle r={(TOUCH_HIT_RADIUS_PX * svgUnitsPerScreenPx) / zoom} fill="transparent" />}
                     <defs>
                       <clipPath id={`flagclip-${g.pin.country.cca2}`}>
                         <circle r={6.5 / zoom} />
@@ -795,6 +854,7 @@ function WorldMapInner({
                   onClick={(e) => handleClickCluster(e, g.items)}
                   style={{ cursor: "pointer" }}
                 >
+                  {touchTarget && <circle r={(TOUCH_HIT_RADIUS_PX * svgUnitsPerScreenPx) / zoom} fill="transparent" />}
                   <circle
                     r={11 / zoom}
                     fill="oklch(0.2 0.032 245)"
@@ -837,6 +897,8 @@ function WorldMapInner({
     handleLeaveCity,
     handleClickCity,
     handleClickCluster,
+    touchTarget,
+    svgUnitsPerScreenPx,
   ]);
 
   return (
