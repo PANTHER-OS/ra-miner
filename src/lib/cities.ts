@@ -39,6 +39,28 @@ export function hasCityData(cca2: string | null | undefined): boolean {
   return getCitiesForCountry(cca2).length > 0;
 }
 
+// Vira parte de URL (ex: "São Paulo" -> "sao-paulo") — usado nas rotas
+// /pais/:cca2/:cidade. Nomes de cidade no dataset já vêm no idioma/grafia
+// original (GeoNames), não traduzidos — a slug segue o mesmo nome exibido
+// na UI, então não precisa de nenhuma tabela de tradução extra.
+export function slugifyCityName(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+export function findCityBySlug(
+  cca2: string | null | undefined,
+  slug: string | null | undefined,
+): CityEntry | null {
+  if (!slug) return null;
+  const cities = getCitiesForCountry(cca2);
+  return cities.find((c) => slugifyCityName(c.name) === slug) ?? null;
+}
+
 // Todas as cidades do dataset, achatadas — usado na busca global e na
 // revelação por zoom no mapa. `rank` é a posição da cidade dentro da lista
 // do seu país (0 = mais relevante) — é o que decide se ela é uma das
