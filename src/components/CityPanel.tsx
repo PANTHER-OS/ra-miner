@@ -55,13 +55,19 @@ export function CityPanel({ city, country, onClose }: Props) {
             aria-hidden
           />
 
+          {/* max-h-[88dvh], não 88vh — mesmo problema do CountryPanel: no
+              Safari do iPhone "vh" mede a tela com a barra de endereço
+              recolhida (o maior tamanho possível), não a altura realmente
+              visível. Com a barra ainda visível, isso empurrava o topo do
+              painel (e o botão de fechar) pra fora da área visível.
+              "dvh" acompanha a altura visível de verdade. */}
           <motion.aside
             key={`${city.name}-${city.lat}`}
             initial={{ x: "100%", opacity: 0.5 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: "100%", opacity: 0 }}
             transition={{ type: "spring", stiffness: 280, damping: 32 }}
-            className="fixed inset-x-0 bottom-0 top-auto z-[56] flex max-h-[88vh] flex-col overflow-hidden rounded-t-3xl border-t border-border bg-surface-elevated/95 shadow-panel backdrop-blur-xl sm:inset-y-0 sm:right-0 sm:left-auto sm:top-0 sm:h-full sm:max-h-none sm:w-full sm:max-w-md sm:rounded-l-3xl sm:rounded-tr-none sm:border-l sm:border-t-0"
+            className="fixed inset-x-0 bottom-0 top-auto z-[56] flex max-h-[88dvh] flex-col overflow-hidden rounded-t-3xl border-t border-border bg-surface-elevated/95 shadow-panel backdrop-blur-xl sm:inset-y-0 sm:right-0 sm:left-auto sm:top-0 sm:h-full sm:max-h-none sm:w-full sm:max-w-md sm:rounded-l-3xl sm:rounded-tr-none sm:border-l sm:border-t-0"
             role="dialog"
             aria-labelledby="city-panel-title"
           >

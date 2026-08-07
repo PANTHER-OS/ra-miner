@@ -166,7 +166,10 @@ export function TravelQuiz({ open, onClose, countries, onOpenCountry }: Props) {
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 48, opacity: 0, scale: 0.97 }}
             transition={{ type: "spring", damping: 28, stiffness: 280 }}
-            className="relative flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl border border-border bg-surface shadow-2xl sm:rounded-3xl"
+            // max-h-[92dvh], não 92vh — no Safari do iPhone "vh" mede a
+            // tela com a barra de endereço recolhida, não a altura
+            // realmente visível; "dvh" acompanha o tamanho de verdade.
+            className="relative flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl border border-border bg-surface shadow-2xl sm:rounded-3xl"
           >
             {/* Atmosfera de fundo — sutil, imersiva, não compete com o conteúdo */}
             <div
