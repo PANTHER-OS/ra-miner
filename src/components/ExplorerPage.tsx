@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import { motion } from "framer-motion";
 import { Globe2, Compass } from "lucide-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
@@ -14,10 +14,14 @@ import { CountryPanel } from "@/components/CountryPanel";
 import { CityPanel } from "@/components/CityPanel";
 import { MapSkeleton } from "@/components/CountrySkeleton";
 import { TravelQuiz } from "@/components/TravelQuiz";
+import { CompareTray } from "@/components/CompareTray";
+import { CompareView } from "@/components/CompareView";
 import { PassportStats } from "@/components/PassportStats";
 import { usePassport } from "@/lib/passport";
 import type { PassportStatus } from "@/lib/passport";
 import { findCityBySlug, slugifyCityName, type CityEntry, type CityWithCountry } from "@/lib/cities";
+
+const MAX_COMPARE = 3;
 
 // Página inteira do explorador — mora aqui (não direto numa rota) porque é
 // compartilhada por TRÊS URLs diferentes ("/", "/pais/:cca2",
@@ -47,6 +51,8 @@ export function ExplorerPage() {
   const [region, setRegion] = useState("all");
   const [view, setView] = useState<ViewMode>("all");
   const [quizOpen, setQuizOpen] = useState(false);
+  const [compareList, setCompareList] = useState<Country[]>([]);
+  const [compareOpen, setCompareOpen] = useState(false);
   const passport = usePassport();
 
   const verifiedSet = useMemo(
@@ -182,6 +188,32 @@ export function ExplorerPage() {
 
   const handleCloseCityPanel = useCallback(() => setSelectedCity(null), []);
 
+  // Marca/desmarca um país pra comparação lado a lado (botão de balança no
+  // CountryPanel) — até 3 por vez, o suficiente pra caber numa tela sem
+  // virar planilha, e já dá pra decidir entre as opções que sobraram.
+  const toggleCompare = useCallback((c: Country) => {
+    setCompareList((prev) => {
+      if (prev.some((p) => p.cca2 === c.cca2)) return prev.filter((p) => p.cca2 !== c.cca2);
+      if (prev.length >= MAX_COMPARE) {
+        toast(`Só dá pra comparar até ${MAX_COMPARE} países por vez`, {
+          description: "Remova um da lista pra adicionar outro.",
+        });
+        return prev;
+      }
+      return [...prev, c];
+    });
+  }, []);
+  const removeFromCompare = useCallback((cca2: string) => {
+    setCompareList((prev) => prev.filter((p) => p.cca2 !== cca2));
+  }, []);
+  // Ver o perfil completo a partir da comparação: fecha a comparação e abre
+  // o painel do país, com o mesmo pequeno atraso usado no quiz — evita as
+  // duas transições (fechar modal, abrir painel) brigando na mesma animação.
+  const openCountryFromCompare = useCallback((c: Country) => {
+    setCompareOpen(false);
+    setTimeout(() => setSelected(c), 250);
+  }, []);
+
   return (
     <div className="min-h-screen">
       <Toaster
@@ -302,6 +334,8 @@ export function ExplorerPage() {
         country={selectedCity ? null : selected}
         onClose={handleClosePanel}
         onOpenCity={handleSelectCity}
+        compareList={compareList}
+        onToggleCompare={toggleCompare}
       />
 
       <CityPanel city={selectedCity} country={selected} onClose={handleCloseCityPanel} />
@@ -311,6 +345,20 @@ export function ExplorerPage() {
         onClose={() => setQuizOpen(false)}
         countries={countries ?? []}
         onOpenCountry={handleSelectCountry}
+      />
+
+      <CompareTray
+        countries={compareList}
+        onOpen={() => setCompareOpen(true)}
+        onRemove={removeFromCompare}
+        onClear={() => setCompareList([])}
+      />
+      <CompareView
+        open={compareOpen}
+        countries={compareList}
+        onClose={() => setCompareOpen(false)}
+        onRemove={removeFromCompare}
+        onOpenCountry={openCountryFromCompare}
       />
     </div>
   );
