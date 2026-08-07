@@ -9,13 +9,15 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
+import { Route as ExplorerRouteImport } from './routes/_explorer'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
+import { Route as ExplorerIndexRouteImport } from './routes/_explorer/index'
 import { Route as ApiPublicCountriesRouteImport } from './routes/api/public/countries'
+import { Route as ExplorerPaisCca2IndexRouteImport } from './routes/_explorer/pais/$cca2/index'
+import { Route as ExplorerPaisCca2CidadeRouteImport } from './routes/_explorer/pais/$cca2/$cidade'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const ExplorerRoute = ExplorerRouteImport.update({
+  id: '/_explorer',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
@@ -23,49 +25,88 @@ const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   path: '/sitemap.xml',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ExplorerIndexRoute = ExplorerIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ExplorerRoute,
+} as any)
 const ApiPublicCountriesRoute = ApiPublicCountriesRouteImport.update({
   id: '/api/public/countries',
   path: '/api/public/countries',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ExplorerPaisCca2IndexRoute = ExplorerPaisCca2IndexRouteImport.update({
+  id: '/pais/$cca2/',
+  path: '/pais/$cca2/',
+  getParentRoute: () => ExplorerRoute,
+} as any)
+const ExplorerPaisCca2CidadeRoute = ExplorerPaisCca2CidadeRouteImport.update({
+  id: '/pais/$cca2/$cidade',
+  path: '/pais/$cca2/$cidade',
+  getParentRoute: () => ExplorerRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
+  '/': typeof ExplorerIndexRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/public/countries': typeof ApiPublicCountriesRoute
+  '/pais/$cca2/$cidade': typeof ExplorerPaisCca2CidadeRoute
+  '/pais/$cca2/': typeof ExplorerPaisCca2IndexRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/': typeof ExplorerIndexRoute
   '/api/public/countries': typeof ApiPublicCountriesRoute
+  '/pais/$cca2/$cidade': typeof ExplorerPaisCca2CidadeRoute
+  '/pais/$cca2': typeof ExplorerPaisCca2IndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
+  '/_explorer': typeof ExplorerRouteWithChildren
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/_explorer/': typeof ExplorerIndexRoute
   '/api/public/countries': typeof ApiPublicCountriesRoute
+  '/_explorer/pais/$cca2/$cidade': typeof ExplorerPaisCca2CidadeRoute
+  '/_explorer/pais/$cca2/': typeof ExplorerPaisCca2IndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/sitemap.xml' | '/api/public/countries'
+  fullPaths:
+    | '/'
+    | '/sitemap.xml'
+    | '/api/public/countries'
+    | '/pais/$cca2/$cidade'
+    | '/pais/$cca2/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/sitemap.xml' | '/api/public/countries'
-  id: '__root__' | '/' | '/sitemap.xml' | '/api/public/countries'
+  to:
+    | '/sitemap.xml'
+    | '/'
+    | '/api/public/countries'
+    | '/pais/$cca2/$cidade'
+    | '/pais/$cca2'
+  id:
+    | '__root__'
+    | '/_explorer'
+    | '/sitemap.xml'
+    | '/_explorer/'
+    | '/api/public/countries'
+    | '/_explorer/pais/$cca2/$cidade'
+    | '/_explorer/pais/$cca2/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
+  ExplorerRoute: typeof ExplorerRouteWithChildren
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiPublicCountriesRoute: typeof ApiPublicCountriesRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
+    '/_explorer': {
+      id: '/_explorer'
+      path: ''
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+      preLoaderRoute: typeof ExplorerRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sitemap.xml': {
@@ -75,6 +116,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SitemapDotxmlRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_explorer/': {
+      id: '/_explorer/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof ExplorerIndexRouteImport
+      parentRoute: typeof ExplorerRoute
+    }
     '/api/public/countries': {
       id: '/api/public/countries'
       path: '/api/public/countries'
@@ -82,11 +130,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicCountriesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_explorer/pais/$cca2/': {
+      id: '/_explorer/pais/$cca2/'
+      path: '/pais/$cca2'
+      fullPath: '/pais/$cca2/'
+      preLoaderRoute: typeof ExplorerPaisCca2IndexRouteImport
+      parentRoute: typeof ExplorerRoute
+    }
+    '/_explorer/pais/$cca2/$cidade': {
+      id: '/_explorer/pais/$cca2/$cidade'
+      path: '/pais/$cca2/$cidade'
+      fullPath: '/pais/$cca2/$cidade'
+      preLoaderRoute: typeof ExplorerPaisCca2CidadeRouteImport
+      parentRoute: typeof ExplorerRoute
+    }
   }
 }
 
+interface ExplorerRouteChildren {
+  ExplorerIndexRoute: typeof ExplorerIndexRoute
+  ExplorerPaisCca2CidadeRoute: typeof ExplorerPaisCca2CidadeRoute
+  ExplorerPaisCca2IndexRoute: typeof ExplorerPaisCca2IndexRoute
+}
+
+const ExplorerRouteChildren: ExplorerRouteChildren = {
+  ExplorerIndexRoute: ExplorerIndexRoute,
+  ExplorerPaisCca2CidadeRoute: ExplorerPaisCca2CidadeRoute,
+  ExplorerPaisCca2IndexRoute: ExplorerPaisCca2IndexRoute,
+}
+
+const ExplorerRouteWithChildren = ExplorerRoute._addFileChildren(
+  ExplorerRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
+  ExplorerRoute: ExplorerRouteWithChildren,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiPublicCountriesRoute: ApiPublicCountriesRoute,
 }

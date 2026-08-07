@@ -1,9 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Toaster } from "sonner";
 import { motion } from "framer-motion";
 import { Globe2, Compass } from "lucide-react";
+import { useNavigate, useParams } from "@tanstack/react-router";
 
 import { fetchCountries, getPtName } from "@/lib/countries";
 import type { Country } from "@/lib/countries";
@@ -17,18 +17,27 @@ import { TravelQuiz } from "@/components/TravelQuiz";
 import { PassportStats } from "@/components/PassportStats";
 import { usePassport } from "@/lib/passport";
 import type { PassportStatus } from "@/lib/passport";
-import type { CityEntry, CityWithCountry } from "@/lib/cities";
+import { findCityBySlug, slugifyCityName, type CityEntry, type CityWithCountry } from "@/lib/cities";
 
-export const Route = createFileRoute("/")({
-  component: Home,
-});
-
-function Home() {
+// Página inteira do explorador — mora aqui (não direto numa rota) porque é
+// compartilhada por TRÊS URLs diferentes ("/", "/pais/:cca2",
+// "/pais/:cca2/:cidade"), todas nested sob o layout sem caminho próprio
+// `_explorer` (ver src/routes/_explorer.tsx). Isso é o que permite trocar
+// de país/cidade SEM remontar o mapa inteiro — se cada URL tivesse seu
+// próprio componente de página, o WorldMap perderia zoom/posição toda vez
+// que o usuário fechasse um painel ou clicasse noutro marcador, porque o
+// React trataria como uma página totalmente nova.
+export function ExplorerPage() {
   const { data: countries, isLoading } = useQuery({
     queryKey: ["countries"],
     queryFn: fetchCountries,
     staleTime: 1000 * 60 * 60,
   });
+
+  const navigate = useNavigate();
+  // `strict: false` lê os params de QUALQUER rota da árvore atual — não
+  // precisa saber se estamos em "/", "/pais/:cca2" ou "/pais/:cca2/:cidade".
+  const params = useParams({ strict: false }) as { cca2?: string; cidade?: string };
 
   const [selected, setSelected] = useState<Country | null>(null);
   const [selectedCity, setSelectedCity] = useState<CityEntry | null>(null);
@@ -52,6 +61,91 @@ function Home() {
     for (const code of passport.wishlist) if (!m.has(code)) m.set(code, "wishlist");
     return m;
   }, [passport]);
+
+  // ---------- URL <-> estado ----------
+  // Duas direções, cada uma só reage quando a OUTRA não foi a causa —
+  // evita loop infinito entre "cliquei um país -> muda a URL" e
+  // "a URL mudou -> seleciona o país".
+  const syncingFromUrl = useRef(false);
+  // Fica true depois que o efeito "URL -> estado" roda pela 1ª vez (assim
+  // que `countries` carrega). Sem isso, entrar direto em /pais/de teria uma
+  // corrida: no primeiro render `selected` ainda é null (o efeito URL->estado
+  // só consegue rodar depois que `countries` chega, de forma assíncrona),
+  // mas o efeito estado->URL abaixo já rodaria nesse mesmo primeiro render
+  // vendo `selected === null` e mandaria de volta pra "/" — apagando o país
+  // da URL antes mesmo dele ter a chance de ser aplicado.
+  const hydratedFromUrl = useRef(false);
+
+  // URL -> estado: entrar direto em /pais/de (link, busca do Google,
+  // botão voltar/avançar) seleciona o país (e cidade, se houver) certo.
+  useEffect(() => {
+    if (!countries) return;
+    const cca2 = params.cca2?.toUpperCase();
+    if (!cca2) {
+      if (selected) {
+        syncingFromUrl.current = true;
+        setSelected(null);
+        setSelectedCity(null);
+      }
+      hydratedFromUrl.current = true;
+      return;
+    }
+    if (selected?.cca2 !== cca2) {
+      const country = countries.find((c) => c.cca2 === cca2);
+      if (country) {
+        syncingFromUrl.current = true;
+        setSelected(country);
+      }
+    }
+    if (params.cidade) {
+      if (selectedCity?.name && slugifyCityName(selectedCity.name) === params.cidade) {
+        hydratedFromUrl.current = true;
+        return;
+      }
+      const city = findCityBySlug(cca2, params.cidade);
+      if (city) {
+        syncingFromUrl.current = true;
+        setSelectedCity(city);
+        setFocusCity({ lat: city.lat, lng: city.lng, nonce: Date.now() });
+      }
+    } else if (selectedCity) {
+      syncingFromUrl.current = true;
+      setSelectedCity(null);
+    }
+    hydratedFromUrl.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.cca2, params.cidade, countries]);
+
+  // Estado -> URL: qualquer seleção feita na UI (busca, clique no mapa,
+  // fechar painel...) atualiza o endereço pra refletir onde o usuário
+  // está — o link fica sempre certo pra compartilhar ou recarregar.
+  // `replace` (não `push`): navegar o mapa não deveria empilhar uma
+  // entrada de histórico por clique, senão o botão "voltar" vira uma
+  // lista de todo país que se passou o mouse por cima.
+  useEffect(() => {
+    if (syncingFromUrl.current) {
+      syncingFromUrl.current = false;
+      return;
+    }
+    // Ainda não tentamos ler a URL nem uma vez (ver comentário no ref acima)
+    // — não faça nada até lá, ou uma /pais/:cca2 carregada direto seria
+    // revertida pra "/" antes do país ser selecionado.
+    if (!hydratedFromUrl.current) return;
+    if (!selected) {
+      if (params.cca2) navigate({ to: "/", replace: true });
+      return;
+    }
+    const cca2 = selected.cca2.toLowerCase();
+    if (selectedCity) {
+      const slug = slugifyCityName(selectedCity.name);
+      if (params.cca2?.toLowerCase() !== cca2 || params.cidade !== slug) {
+        navigate({ to: "/pais/$cca2/$cidade", params: { cca2, cidade: slug }, replace: true });
+      }
+    } else if (params.cca2?.toLowerCase() !== cca2 || params.cidade) {
+      navigate({ to: "/pais/$cca2", params: { cca2 }, replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, selectedCity]);
 
   // Referência estável: evita que o mapa (memoizado) perca o memo e
   // reconstrua tudo sempre que a Home re-renderiza por um motivo que não
