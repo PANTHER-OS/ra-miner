@@ -8,6 +8,7 @@ import { AnimatedCounter } from "./AnimatedCounter";
 
 interface Props {
   countries: Country[];
+  onOpenWishlist?: () => void;
 }
 
 const HEMI_LABELS: { key: "north" | "south" | "east" | "west"; label: string }[] = [
@@ -17,7 +18,7 @@ const HEMI_LABELS: { key: "north" | "south" | "east" | "west"; label: string }[]
   { key: "west", label: "O" },
 ];
 
-export function PassportStats({ countries }: Props) {
+export function PassportStats({ countries, onOpenWishlist }: Props) {
   const passport = usePassport();
   const stats = useMemo(() => computeStats(passport, countries), [passport, countries]);
 
@@ -73,6 +74,18 @@ export function PassportStats({ countries }: Props) {
                   <BadgeCheck className="h-3 w-3" />
                   {stats.verifiedCount} verificado{stats.verifiedCount > 1 ? "s" : ""} por GPS
                 </span>
+              )}
+              {/* Visível em toda largura de tela — o MiniStat "quero" ao
+                  lado (sm:flex) some no mobile, então essa é a única forma
+                  de abrir a lista de desejos num celular. */}
+              {stats.wishlistCount > 0 && onOpenWishlist && (
+                <button
+                  onClick={onOpenWishlist}
+                  className="flex items-center gap-1 rounded-full border border-border bg-surface/60 px-2 py-0.5 text-[10px] font-semibold text-foreground/85 transition hover:border-primary/40 hover:text-primary"
+                >
+                  <MapPinned className="h-3 w-3" />
+                  {stats.wishlistCount} na lista · planejar viagem
+                </button>
               )}
             </div>
 

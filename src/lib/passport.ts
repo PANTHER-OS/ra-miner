@@ -20,14 +20,24 @@ export interface Stamp {
   note?: string;
 }
 
+/** Planejamento opcional de um país da lista de desejos — datas (pra
+ * agrupar em viagens) e uma anotação livre. Tudo opcional: um país pode
+ * ficar só na lista, sem nunca ganhar data nenhuma. */
+export interface TripPlan {
+  start?: string; // ISO yyyy-mm-dd
+  end?: string; // ISO yyyy-mm-dd
+  note?: string;
+}
+
 export interface PassportState {
   visited: string[]; // cca2 codes
   wishlist: string[];
   stamps: Record<string, Stamp>; // cca2 -> carimbo verificado
+  plans: Record<string, TripPlan>; // cca2 -> plano de viagem (só p/ wishlist)
 }
 
 function emptyState(): PassportState {
-  return { visited: [], wishlist: [], stamps: {} };
+  return { visited: [], wishlist: [], stamps: {}, plans: {} };
 }
 
 function read(): PassportState {
@@ -41,6 +51,8 @@ function read(): PassportState {
       wishlist: Array.isArray(parsed.wishlist) ? parsed.wishlist : [],
       stamps:
         parsed.stamps && typeof parsed.stamps === "object" ? parsed.stamps : {},
+      plans:
+        parsed.plans && typeof parsed.plans === "object" ? parsed.plans : {},
     };
   } catch {
     return emptyState();
@@ -80,7 +92,12 @@ export function setStatus(code: string, status: PassportStatus) {
   const stamps = { ...s.stamps };
   // Desmarcar "já visitei" remove o carimbo verificado.
   if (status !== "visited") delete stamps[code];
-  write({ visited: [...visited], wishlist: [...wishlist], stamps });
+  const plans = { ...s.plans };
+  // Sair da lista de desejos (virou "visitei" ou foi removido) apaga o
+  // plano de viagem junto — não faz sentido guardar data/nota de um país
+  // que não está mais planejado.
+  if (status !== "wishlist") delete plans[code];
+  write({ visited: [...visited], wishlist: [...wishlist], stamps, plans });
 }
 
 export function toggleStatus(code: string, target: "visited" | "wishlist"): PassportStatus {
@@ -107,10 +124,15 @@ export function saveStamp(code: string, stamp: Stamp) {
   const wishlist = new Set(s.wishlist);
   visited.add(code);
   wishlist.delete(code);
+  const plans = { ...s.plans };
+  // Virou "visitei" (carimbo verificado) — mesmo raciocínio de setStatus:
+  // apaga o plano de viagem, já que o país saiu da lista de desejos.
+  delete plans[code];
   write({
     visited: [...visited],
     wishlist: [...wishlist],
     stamps: { ...s.stamps, [code]: stamp },
+    plans,
   });
 }
 
@@ -126,6 +148,97 @@ export function removeStamp(code: string) {
   const stamps = { ...s.stamps };
   delete stamps[code];
   write({ ...s, stamps });
+}
+
+// ============ Planos de viagem (datas + nota da lista de desejos) ============
+
+export function getPlan(code: string): TripPlan | undefined {
+  return read().plans[code];
+}
+
+export function setPlan(code: string, plan: TripPlan) {
+  const s = read();
+  const plans = { ...s.plans };
+  const isEmpty = !plan.start && !plan.end && !plan.note;
+  if (isEmpty) delete plans[code];
+  else plans[code] = plan;
+  write({ ...s, plans });
+}
+
+// ============ Lista de desejos agrupada em viagens ============
+
+export interface TripGroup {
+  start: string;
+  end: string;
+  codes: string[]; // cca2, em ordem de data
+}
+
+// Tolerância entre o fim de uma parada e o início da próxima pra ainda
+// contar como a MESMA viagem — sem isso, ir "Paris 10-15 dez" depois
+// "Roma 16-20 dez" (dois países, uma viagem só, óbvio pra qualquer
+// humano lendo) apareceria como duas viagens separadas só porque as datas
+// não se sobrepõem byte a byte.
+const TRIP_GAP_TOLERANCE_DAYS = 5;
+
+/**
+ * Agrupa a lista de desejos em "viagens" por proximidade de data —
+ * intervalos que se sobrepõem OU ficam a poucos dias um do outro entram no
+ * mesmo grupo (mesma lógica de "merge de intervalos", com folga). Países
+ * sem nenhuma data ficam de fora dos grupos (`unplanned`).
+ */
+export function groupWishlistIntoTrips(
+  wishlist: string[],
+  plans: Record<string, TripPlan>,
+): { groups: TripGroup[]; unplanned: string[] } {
+  const dated = wishlist
+    .map((code) => {
+      const plan = plans[code];
+      if (!plan?.start) return null;
+      const start = plan.start;
+      const end = plan.end && plan.end >= plan.start ? plan.end : plan.start;
+      return { code, start, end };
+    })
+    .filter((x): x is { code: string; start: string; end: string } => x !== null)
+    .sort((a, b) => a.start.localeCompare(b.start));
+
+  const groups: TripGroup[] = [];
+  let current: { code: string; start: string; end: string }[] = [];
+
+  const flush = () => {
+    if (current.length === 0) return;
+    groups.push({
+      start: current[0].start,
+      end: current.reduce((max, x) => (x.end > max ? x.end : max), current[0].end),
+      codes: current.map((x) => x.code),
+    });
+    current = [];
+  };
+
+  for (const item of dated) {
+    if (current.length === 0) {
+      current.push(item);
+      continue;
+    }
+    const lastEnd = current.reduce((max, x) => (x.end > max ? x.end : max), current[0].end);
+    const gapDays = daysBetween(lastEnd, item.start);
+    if (gapDays <= TRIP_GAP_TOLERANCE_DAYS) {
+      current.push(item);
+    } else {
+      flush();
+      current.push(item);
+    }
+  }
+  flush();
+
+  const datedCodes = new Set(dated.map((d) => d.code));
+  const unplanned = wishlist.filter((code) => !datedCodes.has(code));
+  return { groups, unplanned };
+}
+
+function daysBetween(isoA: string, isoB: string): number {
+  const a = new Date(isoA + "T00:00:00Z").getTime();
+  const b = new Date(isoB + "T00:00:00Z").getTime();
+  return (b - a) / 86_400_000;
 }
 
 
