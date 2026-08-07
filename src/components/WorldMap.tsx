@@ -287,11 +287,8 @@ function WorldMapInner({
     setMapInstanceKey((k) => k + 1);
   };
 
-  const zoomIn = () => setZoom((z) => Math.min(z * 1.6, MAX_ZOOM));
+  const zoomIn = () => setZoom((z) => Math.min(z * 1.6, effectiveMaxZoom));
   const zoomOut = () => setZoom((z) => Math.max(z / 1.6, MIN_ZOOM));
-
-  // Traços finos e constantes em qualquer nível de zoom.
-  const hair = 0.5 / zoom;
 
   // --- Tooltip: posição via DOM direto, sem tocar no estado do React a cada
   // pixel do mouse. Isso é o que fazia o mapa inteiro ser reconstruído em
@@ -340,6 +337,30 @@ function WorldMapInner({
   // mudar nada no desktop.
   const REFERENCE_MAP_WIDTH_PX = 1216;
   const sizeScale = touchTarget && mapWidthPx > 0 ? Math.max(1, REFERENCE_MAP_WIDTH_PX / mapWidthPx) : 1;
+  // O RAIO DE AGRUPAMENTO em toque (44px de tela — precisa ser grande pro
+  // dedo, ver markerGroups) também é convertido pra unidades do viewBox
+  // igual todo o resto — só que num container estreito, 44px de tela vira
+  // um pedaço bem maior de MUNDO real do que os mesmos 44px valeriam num
+  // desktop largo (onde o raio "24" original, sem conversão, já bastava).
+  // Resultado: no celular, no MESMO número de zoom, uma área bem maior do
+  // globo acaba se juntando num único cluster — dando a impressão de que
+  // "o zoom está fraco" e fazendo o alvo de um país pequeno (Luxemburgo...)
+  // sumir dentro de um cluster longe dali. A saída é deixar ir bem mais
+  // fundo no zoom no celular — na mesma proporção do sizeScale — pra que
+  // dê pra "compensar" apertando mais o zoom até esse cluster se abrir e
+  // isolar cada país, do jeito que já acontecia naturalmente no desktop.
+  const effectiveMaxZoom = MAX_ZOOM * sizeScale;
+
+  // Traços finos e constantes em qualquer nível de zoom — mas "constante"
+  // aqui também precisa ser em pixels de TELA de verdade, não em unidades
+  // do viewBox: sem o sizeScale, a borda de país (a única forma de
+  // DISTINGUIR um país sem carimbo do vizinho, já que os dois usam a MESMA
+  // cor de preenchimento) encolhia junto com 1/zoom até sumir de vez —
+  // numa tela estreita e com o zoom bem mais fundo agora, isso deixava o
+  // mapa inteiro parecendo um único continente cinza sem fronteira nenhuma
+  // visível, tornando impossível ver se um alfinete estava "dentro" do
+  // país certo ou não.
+  const hair = (0.5 * sizeScale) / zoom;
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     const anchor = tooltipAnchorRef.current;
@@ -965,7 +986,7 @@ function WorldMapInner({
               setCenter(coordinates as [number, number]);
             }}
             minZoom={MIN_ZOOM}
-            maxZoom={MAX_ZOOM}
+            maxZoom={effectiveMaxZoom}
             translateExtent={[
               [0, 0],
               [800, 600],
@@ -1009,7 +1030,7 @@ function WorldMapInner({
       {/* Controles */}
       <div className="absolute right-3 top-3 flex flex-col items-center gap-1.5">
         <div className="flex flex-col overflow-hidden rounded-full border border-border bg-surface/80 shadow-card backdrop-blur">
-          <ControlBtn label="Aumentar zoom" onClick={zoomIn} disabled={zoom >= MAX_ZOOM - 0.001}>
+          <ControlBtn label="Aumentar zoom" onClick={zoomIn} disabled={zoom >= effectiveMaxZoom - 0.001}>
             <Plus className="h-4 w-4" />
           </ControlBtn>
           <span aria-hidden className="mx-auto h-px w-5 bg-border" />
