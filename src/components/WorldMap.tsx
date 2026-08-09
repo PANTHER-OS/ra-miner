@@ -658,12 +658,19 @@ function WorldMapInner({
   // pisca-pisca.
   const visibleLabelEntries = useMemo(() => {
     if (!labelEntries || labelEntries.length === 0) return [];
+    // Diferente do resto do mapa (pontos de cidade, badge de cluster...),
+    // que usa sizeScale pra compensar uma largura de referência FIXA
+    // (REFERENCE_MAP_WIDTH_PX), aqui já convertemos direto pela largura
+    // REAL do container (mapWidthPx) — então já é preciso em qualquer
+    // tamanho de tela sem precisar de sizeScale. Multiplicar pelos dois
+    // era bug: no celular (sizeScale ~3x) o texto nascia bem maior que o
+    // teto de 38px pretendido.
     const screenPxPerSvgUnit = (mapWidthPx > 0 ? mapWidthPx / 800 : 1216 / 800) * zoom;
     const screenCapSvg = MAX_LABEL_SCREEN_PX / screenPxPerSvgUnit;
 
     const sized = labelEntries
       .map((e) => {
-        const fontSizeSvg = Math.min(e.layout.fontSize, screenCapSvg) * sizeScale;
+        const fontSizeSvg = Math.min(e.layout.fontSize, screenCapSvg);
         const apparentPx = fontSizeSvg * screenPxPerSvgUnit;
         return { entry: e, fontSizeSvg, apparentPx };
       })
@@ -703,7 +710,7 @@ function WorldMapInner({
       result.push({ rsmKey, layout, country, fontSizeSvg: s.fontSizeSvg });
     }
     return result;
-  }, [labelEntries, zoom, mapWidthPx, sizeScale]);
+  }, [labelEntries, zoom, mapWidthPx]);
 
   // Todo o conteúdo do SVG (esferas, meridianos, países) fica memoizado à
   // parte: só recalcula quando algo que realmente muda a pintura do mapa
