@@ -229,9 +229,12 @@ export function TravelQuiz({ open, onClose, countries, onOpenCountry }: Props) {
               </button>
             </div>
 
-            {/* Progresso: barra + pontos por pergunta */}
+            {/* Progresso: barra lisa + contador da pergunta atual.
+                (Antes tinha um ponto por pergunta, mas com 13 perguntas ficava
+                apertado e desalinhado em telas pequenas — um contador é mais
+                limpo e sempre cabe.) */}
             <div className="relative">
-              <div className="h-1 w-full bg-border/50">
+              <div className="h-1 w-full overflow-hidden bg-border/50">
                 <motion.div
                   className="h-full bg-gradient-to-r from-primary to-amber-300"
                   animate={{ width: `${progress}%` }}
@@ -239,15 +242,8 @@ export function TravelQuiz({ open, onClose, countries, onOpenCountry }: Props) {
                 />
               </div>
               {phase === "quiz" && (
-                <div className="absolute inset-x-5 -bottom-1 flex justify-between">
-                  {QUESTIONS.map((qq, i) => (
-                    <span
-                      key={qq.id}
-                      className={`h-2 w-2 -translate-y-1/2 rounded-full border-2 border-surface transition-colors duration-300 ${
-                        i <= step ? "bg-primary" : "bg-border"
-                      }`}
-                    />
-                  ))}
+                <div className="px-5 pt-2 text-right text-[11px] font-medium tabular-nums text-muted-foreground">
+                  {step + 1} / {total}
                 </div>
               )}
             </div>
@@ -404,8 +400,17 @@ export function TravelQuiz({ open, onClose, countries, onOpenCountry }: Props) {
                           <img
                             src={`https://flagcdn.com/w80/${r.profile.code.toLowerCase()}.png`}
                             alt=""
-                            className="relative mt-0.5 h-8 w-11 shrink-0 rounded object-cover ring-1 ring-border"
-                            loading="lazy"
+                            width={44}
+                            height={32}
+                            className="relative mt-0.5 h-8 w-11 shrink-0 rounded bg-border/40 object-cover ring-1 ring-border"
+                            onError={(e) => {
+                              // Fallback pra outra CDN se a flagcdn falhar (raro, mas acontece
+                              // em algumas redes móveis) — nunca deixa a caixinha em branco.
+                              const img = e.currentTarget;
+                              if (img.dataset.fallback) return;
+                              img.dataset.fallback = "1";
+                              img.src = `https://flagsapi.com/${r.profile.code.toUpperCase()}/flat/64.png`;
+                            }}
                           />
                           <div className="relative min-w-0 flex-1">
                             <div className="flex items-baseline justify-between gap-2">
