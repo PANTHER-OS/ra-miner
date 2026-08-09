@@ -754,16 +754,35 @@ function WorldMapInner({
     for (const s of sized) {
       const { layout, country, rsmKey } = s.entry;
       const name = getPtName(country);
-      // Metade da largura/altura estimada do texto, em unidades do viewBox
-      // (mesmo espaço de layout.x/y) — mesma heurística de countryLabels.ts.
-      const halfW = (name.length * s.fontSizeSvg * APPROX_CHAR_WIDTH_FACTOR) / 2;
+      // Metade da largura/altura do texto NA HORIZONTAL (sem girar ainda),
+      // em unidades do viewBox (mesmo espaço de layout.x/y) — mesma
+      // heurística de countryLabels.ts.
+      const rawHalfW = (name.length * s.fontSizeSvg * APPROX_CHAR_WIDTH_FACTOR) / 2;
       // 0.75 (não 0.5) de propósito: a altura "de verdade" ocupada por uma
       // linha de texto é maior que o font-size nominal — acentos (ó, â, ã)
       // sobem acima da caixa e a fonte em negrito tem descida própria.
       // Descoberto testando o Báltico (Estônia/Letônia/Lituânia — três
       // países pequenos e bem próximos): com 0.5 os três "cabiam" pelo
       // cálculo mas nasciam visualmente grudados um no outro.
-      const halfH = s.fontSizeSvg * 0.75;
+      const rawHalfH = s.fontSizeSvg * 0.75;
+      // Um país bem alongado (Chile, Guiana Francesa...) gira o texto pra
+      // acompanhar o próprio formato (ver layout.angle/rotate em
+      // countryLabels.ts) — um texto quase vertical (~90°) ocupa uma faixa
+      // ESTREITA na horizontal e ALTA na vertical, o oposto da caixa "texto
+      // deitado" acima. Sem girar a caixa de colisão junto, um país
+      // vizinho geograficamente próximo na direção em que o texto girado
+      // NÃO se estende (ex: Suriname, que fica ao lado da Guiana Francesa
+      // na mesma latitude) colide pra sempre com uma caixa larga demais
+      // que não existe de verdade na tela — a Guiana Francesa nunca
+      // aparecia por causa disso, mesmo no zoom máximo. Fórmula padrão de
+      // bounding box de retângulo rotacionado (a mesma teoria de
+      // countryLabels.ts pro eixo principal, aplicada aqui na caixa do
+      // texto em vez do polígono do país).
+      const rad = (layout.angle * Math.PI) / 180;
+      const cos = Math.abs(Math.cos(rad));
+      const sin = Math.abs(Math.sin(rad));
+      const halfW = rawHalfW * cos + rawHalfH * sin;
+      const halfH = rawHalfW * sin + rawHalfH * cos;
       // Fator > 1 de propósito: exige uma FOLGA entre as caixas, não só
       // "não tocar" — sem essa margem, países vizinhos com nomes grandes
       // (ex: Polônia/Bielorrússia) ainda nasciam encostados ou
