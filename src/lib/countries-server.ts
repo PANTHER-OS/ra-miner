@@ -23,6 +23,7 @@
 //   países mais vem com esse campo), então isso substitui a fonte antiga.
 import { createServerFn } from "@tanstack/react-start";
 import timezones from "@/data/timezones.json";
+import { PT_BR_COMMON_NAME_FIXES } from "@/lib/countries";
 
 const MLEDOZE_URL = "https://raw.githubusercontent.com/mledoze/countries/master/countries.json";
 const POP_URL =
@@ -116,8 +117,8 @@ export const getCountriesServerData = createServerFn({ method: "GET" }).handler(
   },
 );
 
-export function getPtNameServer(c: Pick<ServerCountry, "translations" | "name">): string {
-  return c.translations?.por?.common ?? c.name.common;
+export function getPtNameServer(c: Pick<ServerCountry, "cca2" | "translations" | "name">): string {
+  return PT_BR_COMMON_NAME_FIXES[c.cca2] ?? c.translations?.por?.common ?? c.name.common;
 }
 
 function norm(s: string): string {

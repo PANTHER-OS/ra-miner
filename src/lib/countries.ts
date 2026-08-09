@@ -56,12 +56,79 @@ export async function fetchCountries(): Promise<Country[]> {
   return filtered;
 }
 
+// `translations.por` no dataset (mledoze/countries) é português EUROPEU
+// (de Portugal) — a maioria dos nomes é igual dos dois lados do
+// Atlântico, mas um grupo tem grafia genuinamente diferente no Brasil
+// (o alvo do app: ver o "pt-BR" no sort acima e em toda a formatação de
+// número/data/idioma/moeda já corrigida nesse arquivo). O padrão mais
+// comum é a troca "é" → "ê" antes de certas terminações (não é uma regra
+// cega: várias palavras com "é" continuam iguais nos dois lados, ex.
+// Suécia, México, Nigéria — por isso é uma lista revisada palavra por
+// palavra, não um find-replace automático). Achado ao investigar o
+// relato de que "Irão" (a forma de Portugal) estava aparecendo no lugar
+// de "Irã" — conferido o dataset inteiro e corrigidos todos os outros
+// países no mesmo caso, pra não deixar o resto "errado" só porque
+// ninguém tinha reparado ainda.
+export const PT_BR_COMMON_NAME_FIXES: Record<string, string> = {
+  IR: "Irã",
+  AM: "Armênia",
+  EE: "Estônia",
+  SI: "Eslovênia",
+  LV: "Letônia",
+  MK: "Macedônia do Norte",
+  MC: "Mônaco",
+  NC: "Nova Caledônia",
+  PL: "Polônia",
+  KE: "Quênia",
+  RO: "Romênia",
+  YE: "Iêmen",
+  // Não é só sotaque: o Brasil adotou oficialmente "Tchéquia" (o próprio
+  // governo tcheco pediu que cada país lusófono usasse sua transliteração
+  // fonética) — Portugal usa "Chéquia".
+  CZ: "Tchéquia",
+  // Idem: "Vietname" é a forma usada em Portugal e nos demais países de
+  // língua portuguesa — só o Brasil escreve "Vietnã" (confirmado via
+  // busca, não só memória, junto com os dois de baixo).
+  VN: "Vietnã",
+  // Aqui não é variante nenhuma: bielorrusso/Bielorrússia com dois "r" é
+  // a grafia oficial nos DOIS lados desde que o VOLP (Academia Brasileira
+  // de Letras, 2009) unificou a norma brasileira (que até então registrava
+  // "Bielo-Rússia") com a norma portuguesa — o dataset traz só um "r".
+  BY: "Bielorrússia",
+  // Nem isso é variante de idioma — "Perú" é a grafia ESPANHOLA; em
+  // português (dos dois lados do Atlântico) a regra de acentuação não
+  // marca palavra oxítona terminada em "u" antecedido de consoante, então
+  // o correto é sem acento, igual ao animal.
+  PE: "Peru",
+  // Nomes claramente ultrapassados/mal formatados no dataset, não uma
+  // questão de variante — corrigidos junto por serem do mesmo tipo de
+  // problema (nome de exibição errado).
+  TW: "Taiwan",
+  CW: "Curaçao",
+};
+
 export function getPtName(c: Country): string {
-  return c.translations?.por?.common ?? c.name.common;
+  return PT_BR_COMMON_NAME_FIXES[c.cca2] ?? c.translations?.por?.common ?? c.name.common;
 }
 
+// Mesmo problema do mapa acima, mas no nome OFICIAL — o dataset é
+// inconsistente: alguns oficiais já vêm certos em português do Brasil
+// mesmo quando o nome comum do mesmo país está errado (e vice-versa), daí
+// essa lista ser mais curta e não simplesmente espelhar a de cima.
+const PT_BR_OFFICIAL_NAME_FIXES: Record<string, string> = {
+  AM: "República da Armênia",
+  EE: "República da Estônia",
+  SI: "República da Eslovênia",
+  LV: "República da Letônia",
+  MC: "Principado do Mônaco",
+  NC: "Nova Caledônia", // dataset traz só em inglês ("New Caledonia")
+  PL: "República da Polônia",
+  KE: "República do Quênia",
+  CZ: "República Tcheca",
+};
+
 export function getPtOfficialName(c: Country): string {
-  return c.translations?.por?.official ?? c.name.official;
+  return PT_BR_OFFICIAL_NAME_FIXES[c.cca2] ?? c.translations?.por?.official ?? c.name.official;
 }
 
 export function getRegionPt(region: string): string {
