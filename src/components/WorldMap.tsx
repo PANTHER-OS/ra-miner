@@ -212,6 +212,43 @@ function WorldMapInner({
   // recálculo). Por isso só montamos o mapa depois que o layout de fato
   // se assentou.
   const [layoutSettled, setLayoutSettled] = useState(false);
+  // O ZoomableGroup só avisava a mudança de zoom/pan no FIM do gesto
+  // (onMoveEnd) — durante o meio do gesto (rolar o scroll, arrastar/beliscar
+  // no celular) o estado React (`zoom`) ficava parado enquanto o mapa em si
+  // já tinha se movido visualmente (a lib anima isso por conta própria).
+  // Como o tamanho do nome do país é recalculado a partir desse estado (ver
+  // visibleLabelEntries), o resultado era o nome ficar "parado" durante
+  // todo o gesto e só "saltar" pro tamanho certo de uma vez quando o dedo
+  // soltava — a "diminuída seca" sem nenhuma suavidade. A correção: também
+  // escutar `onMove` (dispara em CADA frame do gesto, contínuo — mas só dá
+  // `zoom`, não `coordinates`; o pan continua só em onMoveEnd, que é tudo
+  // que os rótulos de país precisam, já que visibleLabelEntries não
+  // depende de `center` de propósito), passando por um
+  // requestAnimationFrame pra nunca atualizar o estado mais rápido do que
+  // a tela realmente repinta — sincroniza o React com o mesmo ritmo que o
+  // navegador já está desenhando de qualquer forma, sem gastar mais.
+  const pendingZoomRef = useRef<number | null>(null);
+  const moveRafRef = useRef<number | null>(null);
+  const flushPendingZoom = useCallback(() => {
+    moveRafRef.current = null;
+    const pending = pendingZoomRef.current;
+    if (pending == null) return;
+    setZoom(pending);
+  }, []);
+  const handleZoomMove = useCallback(
+    (z: number) => {
+      pendingZoomRef.current = z;
+      if (moveRafRef.current == null) {
+        moveRafRef.current = requestAnimationFrame(flushPendingZoom);
+      }
+    },
+    [flushPendingZoom],
+  );
+  useEffect(() => {
+    return () => {
+      if (moveRafRef.current != null) cancelAnimationFrame(moveRafRef.current);
+    };
+  }, []);
   // Força o ZoomableGroup a remontar do zero ao "redefinir" — evita que o
   // zoom/pan interno da biblioteca herde uma transformação antiga e volte
   // deslocado para um dos lados em vez de perfeitamente centralizado.
@@ -850,19 +887,20 @@ function WorldMapInner({
             país — ver src/lib/countryLabels.ts pro porquê da geometria
             (polylabel, rotação, clip).
 
-            Entrada/saída animada (estilo Google Maps: o nome se revela com
-            um fade + leve "zoom" suave, não pisca do nada) — três níveis de
-            <g> de propósito, cada um com UM job só:
+            Entrada/saída com fade suave (estilo Google Maps) — dois níveis
+            de <g> de propósito, cada um com UM job só:
               1. clip-path, sem nenhum transform — o clip foi desenhado nas
                  coordenadas ABSOLUTAS do país; se o transform de posição
                  entrasse aqui, o recorte se desalinharia da forma real.
               2. translate até o ponto do rótulo — depois disso, "0,0" já É
-                 o centro do país, então o filho não precisa mais saber a
-                 posição.
-              3. motion.g com o fade/scale animado — rodando em "0,0" (o
-                 centro local já traduzido acima), a escala cresce/encolhe
-                 exatamente a partir do próprio ponto do rótulo, não do
-                 canto do mapa. */}
+                 o centro do país.
+            Só a OPACIDADE anima (sem scale): o tamanho do texto já cresce
+            suave sozinho, porque `zoom` agora atualiza continuamente
+            durante o gesto (ver handleZoomMove) — animar um scale EM CIMA
+            disso duplicaria o movimento. Nada de motion.g com transform
+            aqui de propósito: um teste isolado mostrou que não era a causa
+            de nenhum bug, mas manter só opacidade evita qualquer risco de
+            CSS transform brigar com o clip-path num navegador específico. */}
         {visibleLabelEntries.length > 0 && (
           <>
             <defs>
@@ -884,10 +922,10 @@ function WorldMapInner({
                   >
                     <g transform={`translate(${layout.x} ${layout.y})`}>
                       <motion.g
-                        initial={{ opacity: 0, scale: 0.65 }}
-                        animate={{ opacity: dimmed ? 0.28 : 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.65 }}
-                        transition={{ type: "spring", stiffness: 260, damping: 26 }}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: dimmed ? 0.28 : 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.22, ease: "easeOut" }}
                       >
                         <text
                           x={0}
@@ -1164,7 +1202,17 @@ function WorldMapInner({
             key={mapInstanceKey}
             zoom={zoom}
             center={center}
+            onMove={({ zoom: z }) => handleZoomMove(z)}
             onMoveEnd={({ zoom: z, coordinates }) => {
+              // Cancela qualquer atualização pendente do rAF (senão ela
+              // podia disparar LOGO DEPOIS dessa e, numa corrida rara,
+              // sobrescrever o valor final com um frame intermediário já
+              // desatualizado) e aplica o estado final imediatamente.
+              if (moveRafRef.current != null) {
+                cancelAnimationFrame(moveRafRef.current);
+                moveRafRef.current = null;
+              }
+              pendingZoomRef.current = null;
               setZoom(z);
               setCenter(coordinates as [number, number]);
             }}

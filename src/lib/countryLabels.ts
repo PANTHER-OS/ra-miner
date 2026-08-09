@@ -164,7 +164,20 @@ export const APPROX_CHAR_WIDTH_FACTOR = 0.66;
 // largura máxima do país inteiro.
 const WIDTH_SAFETY_MARGIN = 0.74;
 
-const MIN_FONT = 3; // abaixo disso nem compensa tentar — vira ruído ilegível
+// Piso puramente numérico (nunca zero/negativo) — NÃO é um piso de
+// "legibilidade". Legibilidade quem decide é o teto de tela em
+// WorldMap.tsx (MIN_LABEL_SCREEN_PX): ele já esconde qualquer rótulo cujo
+// tamanho real na tela ficaria pequeno demais pra ler, então aqui é seguro
+// deixar o fontSize "natural" ser bem pequeno pra um país minúsculo — ele
+// só aparece quando o zoom for fundo o bastante pra caber por inteiro.
+// ANTES havia um piso de 3 unidades "forçando" um tamanho mínimo mesmo
+// quando o espaço disponível era menor — isso fazia o nome de país bem
+// pequeno e alongado (Belize, Ilhas Malvinas) nascer maior do que cabia,
+// cortando a palavra pela metade (ex: só "elize" visível, o "B" sumindo
+// inteiro) — o que por sua vez PARECIA um vazamento de borda, embora o
+// clip-path estivesse cortando exatamente certo. Sem o piso artificial, o
+// país só aparece quando o nome INTEIRO já cabe.
+const MIN_FONT = 0.35;
 const MAX_FONT = 60; // teto generoso; o cap de tela em WorldMap.tsx já evita texto gigante
 const ELONGATION_THRESHOLD = 1.7; // a partir daqui, "vale a pena" girar o texto
 const MIN_ROTATION_DEG = 12; // ângulos pequenos demais não valem o efeito colateral
@@ -217,14 +230,6 @@ export function computeCountryLabel(
   const byHeight = availableHeight * 0.32;
   const byWidth =
     (availableWidth * WIDTH_SAFETY_MARGIN) / (Math.max(name.length, 1) * APPROX_CHAR_WIDTH_FACTOR);
-  // MIN_FONT é um piso RELATIVO ao próprio país, não um tamanho absoluto —
-  // um país pequeno de verdade (Estônia, Bélgica, Coreia do Sul...) precisa
-  // dele pra não ficar sem nome nenhuma vez, e cresce normalmente conforme
-  // dá zoom (o fontSize aqui é "natural", em escala zoom=1 — ver comentário
-  // no topo do arquivo). Só num território realmente minúsculo (Ilhas
-  // Malvinas e afins) o nome pode nascer cortado pelo clip mesmo no piso —
-  // um problema bem mais raro e mais aceitável do que apagar países de
-  // verdade do mapa pra sempre (tentativa anterior, revertida).
   const fontSize = Math.max(MIN_FONT, Math.min(MAX_FONT, byHeight, byWidth));
 
   return {
