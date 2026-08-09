@@ -86,14 +86,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       // manifest normalmente).
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
-      { name: "apple-mobile-web-app-title", content: "Mundo em Foco" },
-      { title: "Mundo em Foco — Explore os países do mundo" },
+      { name: "apple-mobile-web-app-title", content: "Atloura" },
+      { title: "Atloura — Explore os países do mundo" },
       {
         name: "description",
         content:
           "Um explorador interativo de países do mundo. Navegue pelo mapa, descubra curiosidades e veja o interesse global em cada nação.",
       },
-      { property: "og:title", content: "Mundo em Foco" },
+      { property: "og:title", content: "Atloura" },
       {
         property: "og:description",
         content:
@@ -110,7 +110,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:image:width", content: "1200" },
       { property: "og:image:height", content: "630" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:title", content: "Mundo em Foco" },
+      { name: "twitter:title", content: "Atloura" },
       {
         name: "twitter:description",
         content:

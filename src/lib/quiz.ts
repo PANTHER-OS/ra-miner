@@ -428,7 +428,7 @@ export function computeResults(answers: Answers, countries: Country[] = []): Qui
 
 export function buildShareText(top: QuizResult[]): string {
   const lines = [
-    "🌍 Meu perfil no Mundo em Foco:",
+    "🌍 Meu perfil na Atloura:",
     "",
     ...top.map((r, i) => `${["🥇","🥈","🥉"][i]} ${r.profile.name} — ${r.matchPct}% match`),
     "",

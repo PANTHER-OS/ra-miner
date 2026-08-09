@@ -1,4 +1,4 @@
-# Mundo em Foco 🌍
+# Atloura 🌍
 
 Explorador interativo de países do mundo: mapa-múndi navegável, passaporte de viagem pessoal, carimbo verificado por GPS, roteiros de 24h por cidade, mini-phrasebook por idioma e um quiz de compatibilidade de destino.
 

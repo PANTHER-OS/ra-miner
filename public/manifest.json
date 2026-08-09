@@ -1,6 +1,6 @@
 {
-  "name": "Mundo em Foco — Explore os países do mundo",
-  "short_name": "Mundo em Foco",
+  "name": "Atloura — Explore os países do mundo",
+  "short_name": "Atloura",
   "description": "Um explorador interativo de países do mundo. Navegue pelo mapa, descubra curiosidades e monte seu passaporte de viagem.",
   "start_url": "/?source=pwa",
   "scope": "/",
