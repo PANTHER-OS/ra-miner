@@ -16,6 +16,8 @@ import type { PassportStatus } from "@/lib/passport";
 import { getVisibleCities, projectPoint, PROJECTION_SCALE, type CityWithCountry } from "@/lib/cities";
 import {
   computeCountryLabel,
+  geometryToPath,
+  pointInPolygonRing,
   APPROX_CHAR_WIDTH_FACTOR,
   type CountryLabelLayout,
   type GeoGeometry,
@@ -204,6 +206,14 @@ function WorldMapInner({
   // TEM forma própria na topologia — calculado uma única vez (é geometria
   // pura, não muda com zoom/pan/hover), igual presentCcn3 acima.
   const [labelEntries, setLabelEntries] = useState<CountryLabelEntry[] | null>(null);
+  // `d` (svgPath) sem o pedaço "engolido" de território — só populado pros
+  // poucos países cujo MultiPolygon inclui, como mais uma "ilha" solta, a
+  // forma inteira de OUTRO país da nossa lista (ex: a forma da Guiana
+  // Francesa dentro do MultiPolygon da França — ver detecção logo abaixo,
+  // junto com labelEntries). Sem isso, aquele pedaço de terra continuava
+  // respondendo a hover/clique como o país "pai" (França), brigando com o
+  // próprio alfinete de "Guiana Francesa" plantado ali em cima.
+  const [strippedParentPaths, setStrippedParentPaths] = useState<Map<string, string> | null>(null);
   // O ZoomableGroup calcula a posição inicial a partir do tamanho REAL do
   // container no momento em que monta. Se as fontes (Google Fonts, via
   // <link>) ainda não carregaram, o texto acima do mapa pode mudar de
@@ -525,6 +535,20 @@ function WorldMapInner({
     };
   }, [popover]);
 
+  // Entradas de labelEntries que na verdade são território "engolido" por
+  // outro país (ver a detecção dentro de <Geographies>, junto com
+  // strippedParentPaths) — servem tanto pra desenhar a forma própria desse
+  // país (ver render logo após </Geographies>) quanto pra tirá-lo da lista
+  // de "sem forma própria" abaixo, já que agora ele tem uma.
+  const embeddedLabelEntries = useMemo(
+    () => (labelEntries ?? []).filter((e) => e.rsmKey.startsWith("embedded-")),
+    [labelEntries],
+  );
+  const embeddedCca2s = useMemo(
+    () => new Set(embeddedLabelEntries.map((e) => e.country.cca2)),
+    [embeddedLabelEntries],
+  );
+
   // Países sem forma própria na topologia (ver comentário na constante
   // COUNTRY_PIN_REVEAL_ZOOM) — a posição de cada um só precisa ser
   // recalculada quando a LISTA de países ausentes muda, não a cada
@@ -535,11 +559,12 @@ function WorldMapInner({
     for (const c of countries) {
       if (!c.latlng || !c.ccn3) continue;
       if (presentCcn3.has(String(Number(c.ccn3)))) continue;
+      if (embeddedCca2s.has(c.cca2)) continue; // já tem forma própria (ver acima)
       const [px, py] = projectPoint(c.latlng[1], c.latlng[0]);
       pins.push({ country: c, lat: c.latlng[0], lng: c.latlng[1], px, py });
     }
     return pins;
-  }, [countries, presentCcn3]);
+  }, [countries, presentCcn3, embeddedCca2s]);
 
   // Cidades E alfinetes de país sem forma própria, juntos num único cálculo
   // de área visível + agrupamento + rótulo — não é preciso selecionar
@@ -767,6 +792,39 @@ function WorldMapInner({
   // ver commit desta mudança). Com os dois separados, o quadro a quadro
   // do gesto só mexe no useMemo pequeno e barato dos rótulos.
   const mapBaseContent = useMemo(() => {
+    // Cor de preenchimento/contorno de um país — usada tanto pro
+    // <Geography> "normal" (com forma própria na topologia) quanto pro
+    // território "engolido" por outro país (ver embeddedLabelEntries, logo
+    // abaixo): os dois precisam se pintar exatamente igual (visitado,
+    // quero-ir, verificado, selecionado...), senão a Guiana Francesa ficaria
+    // com uma aparência diferente de um país "normal" do mesmo tamanho.
+    const geographyPaint = (country: Country | undefined, isSelected: boolean) => {
+      const status = country && statusMap ? statusMap.get(country.cca2) : "none";
+      const verified = Boolean(country && verifiedSet?.has(country.cca2));
+      const baseFill = verified
+        ? "var(--map-verified)"
+        : status === "visited"
+          ? "var(--map-visited)"
+          : status === "wishlist"
+            ? "var(--map-wishlist)"
+            : "url(#mef-land)";
+      const hoverFill = isSelected
+        ? "var(--map-selected)"
+        : verified
+          ? "var(--map-verified)"
+          : status === "visited"
+            ? "var(--map-visited)"
+            : status === "wishlist"
+              ? "var(--map-wishlist)"
+              : "var(--map-land-hover)";
+      const strokeColor = isSelected
+        ? "var(--map-selected)"
+        : verified
+          ? "var(--map-verified)"
+          : "var(--map-stroke)";
+      const strokeW = isSelected ? hair * 2.4 : verified ? hair * 1.4 : hair;
+      return { baseFill, hoverFill, strokeColor, strokeW };
+    };
     return (
       <>
         <Sphere
@@ -797,6 +855,92 @@ function WorldMapInner({
             }
             if (geographies.length && !labelEntries) {
               queueMicrotask(() => {
+                // Território "engolido" por outro país na topologia: a
+                // Guiana Francesa não tem forma própria porque o dataset do
+                // mapa desenha a terra dela como mais uma "ilha" solta
+                // dentro do MultiPolygon da FRANÇA — geograficamente é
+                // território francês, mas pra quem explora o mapa marcando
+                // Guiana Francesa como visitada, aquele pedaço vivia
+                // respondendo a hover/clique como se fosse a França,
+                // brigando com o próprio alfinete plantado ali em cima (ver
+                // missingCountryPins). Acha esse tipo de caso comparando
+                // cada "ilha" solta de um país com várias contra o lat/lng
+                // de todo país sem forma própria na nossa lista; quando um
+                // cai dentro da outra E a ilha tem um tamanho plausível pra
+                // ele (ver o filtro de área abaixo), essa ilha vira a forma
+                // própria dele (embeddedEntries), e é subtraída do país
+                // original (strippedPaths) — o resto do território (ex: a
+                // França continental) segue intacto. O filtro de área é o
+                // que evita confundir isso com um país pequeno ENCRAVADO
+                // dentro de outro (Andorra/Mônaco na França, San
+                // Marino/Vaticano na Itália, Singapura na Malásia...): o
+                // ponto deles também "cai dentro" do contorno do país
+                // hospedeiro no teste acima, mas é o CONTINENTE inteiro que
+                // engloba, não uma ilha dedicada a ele — sem o filtro, cada
+                // um desses ia "roubar" o continente inteiro pra si.
+                const claimedCca2 = new Set<string>();
+                const embeddedEntries: CountryLabelEntry[] = [];
+                const strippedPaths = new Map<string, string>();
+                for (const geo of geographies) {
+                  const geometry = geo.geometry as unknown as { type: string; coordinates: unknown };
+                  const rawPolys: [number, number][][][] =
+                    geometry.type === "MultiPolygon"
+                      ? (geometry.coordinates as [number, number][][][])
+                      : geometry.type === "Polygon"
+                        ? [geometry.coordinates as [number, number][][]]
+                        : [];
+                  if (rawPolys.length < 2) continue; // precisa de mais de uma "ilha" pra ter algo a engolir
+                  const keepIdx = new Set(rawPolys.map((_, idx) => idx));
+                  rawPolys.forEach((poly, idx) => {
+                    const outer = poly[0];
+                    if (!outer || outer.length < 3) return;
+                    // Área (bbox, em grau²) dessa "ilha" — só serve pra
+                    // filtrar falso positivo: um país pequeno ENCRAVADO
+                    // dentro do território de outro (Andorra e Mônaco na
+                    // França, San Marino/Vaticano na Itália, Singapura na
+                    // Malásia...) também "cai dentro" do anel do país
+                    // hospedeiro no teste ponto-em-polígono acima, mas esse
+                    // anel é o CONTINENTE inteiro, não um pedaço dedicado a
+                    // ele — bem diferente da Guiana Francesa, cujo anel É,
+                    // sozinho, do tamanho dela. Comparar a área do anel com
+                    // a área REAL do país candidato (já temos na nossa
+                    // lista) separa os dois casos com folga enorme: a
+                    // Guiana Francesa bate ~1,6× a própria área; o pior
+                    // falso positivo testado (Singapura dentro da Malásia)
+                    // passa de 390× — um piso de 6× já garante clareza.
+                    let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+                    for (const [lng, lat] of outer) {
+                      if (lng < minLng) minLng = lng;
+                      if (lng > maxLng) maxLng = lng;
+                      if (lat < minLat) minLat = lat;
+                      if (lat > maxLat) maxLat = lat;
+                    }
+                    const KM_PER_DEG = 111; // aproximação (perto o bastante do equador; é só um filtro de plausibilidade)
+                    const ringAreaKm2 = (maxLng - minLng) * (maxLat - minLat) * KM_PER_DEG * KM_PER_DEG;
+                    for (const c of countries) {
+                      if (claimedCca2.has(c.cca2) || !c.ccn3 || !c.latlng || !c.area) continue;
+                      if (String(Number(c.ccn3)) === String(Number(geo.id))) continue; // o próprio país, não um hóspede
+                      if (ringAreaKm2 > c.area * 6) continue; // anel grande demais pra ser SÓ esse país — provável enclave
+                      const [lat, lng] = c.latlng;
+                      if (!pointInPolygonRing([lng, lat], outer)) continue;
+                      const childGeometry: GeoGeometry = { type: "Polygon", coordinates: poly };
+                      const layout = computeCountryLabel(childGeometry, getPtName(c));
+                      if (layout) {
+                        embeddedEntries.push({ rsmKey: `embedded-${c.cca2}`, layout, country: c });
+                        claimedCca2.add(c.cca2);
+                        keepIdx.delete(idx);
+                      }
+                    }
+                  });
+                  if (keepIdx.size !== rawPolys.length) {
+                    const stripped: GeoGeometry = {
+                      type: "MultiPolygon",
+                      coordinates: rawPolys.filter((_, idx) => keepIdx.has(idx)),
+                    };
+                    strippedPaths.set(geo.rsmKey, geometryToPath(stripped));
+                  }
+                }
+
                 const entries: CountryLabelEntry[] = [];
                 for (const geo of geographies) {
                   const country = byCcn3.get(String(Number(geo.id)));
@@ -804,7 +948,8 @@ function WorldMapInner({
                   const layout = computeCountryLabel(geo.geometry, getPtName(country));
                   if (layout) entries.push({ rsmKey: geo.rsmKey, layout, country });
                 }
-                setLabelEntries(entries);
+                setLabelEntries([...entries, ...embeddedEntries]);
+                setStrippedParentPaths(strippedPaths);
               });
             }
             return geographies.map((geo) => {
@@ -843,10 +988,20 @@ function WorldMapInner({
                   : "var(--map-stroke)";
               const strokeW = isSelected ? hair * 2.4 : verified ? hair * 1.4 : hair;
 
+              // Se um pedaço desse país virou território próprio de outro
+              // país da nossa lista (ver embeddedLabelEntries), desenha só o
+              // que sobrou — sem isso, o pedaço "engolido" continuaria
+              // respondendo a hover/clique como se ainda fosse deste país,
+              // por baixo da forma nova que aparece em cima dele.
+              const strippedSvgPath = strippedParentPaths?.get(geo.rsmKey);
+              const geoForRender = strippedSvgPath
+                ? { ...geo, svgPath: strippedSvgPath }
+                : geo;
+
               return (
                 <Geography
                   key={geo.rsmKey}
-                  geography={geo}
+                  geography={geoForRender}
                   onMouseEnter={() => handleEnterCountry(country)}
                   onMouseLeave={handleLeaveCountry}
                   onClick={() => handleClickCountry(country)}
@@ -893,6 +1048,58 @@ function WorldMapInner({
             });
           }}
         </Geographies>
+
+        {/* Território "engolido" por outro país na topologia (ex: a forma
+            da Guiana Francesa dentro do MultiPolygon da França, Hong Kong
+            dentro do da China) — ver a detecção dentro de <Geographies>
+            acima. Desenhado como um <Geography> de verdade, com a MESMA
+            pintura (visitado/quero ir/verificado/selecionado) e a mesma
+            área de hover/clique de um país normal, só que já resolvendo
+            pro país certo em vez do país "dono" do polígono original. */}
+        {embeddedLabelEntries.map((e) => {
+          const country = e.country;
+          const dimmed = isFiltered(country);
+          const isSelected = country.cca2 === selectedCode;
+          const { baseFill, hoverFill, strokeColor, strokeW } = geographyPaint(country, isSelected);
+          return (
+            <Geography
+              key={e.rsmKey}
+              geography={{ rsmKey: e.rsmKey, svgPath: e.layout.clipPath }}
+              onMouseEnter={() => handleEnterCountry(country)}
+              onMouseLeave={handleLeaveCountry}
+              onClick={() => handleClickCountry(country)}
+              style={{
+                default: {
+                  fill: baseFill,
+                  stroke: strokeColor,
+                  strokeWidth: strokeW,
+                  strokeLinejoin: "round",
+                  outline: "none",
+                  pointerEvents: "fill",
+                  transition: "fill 0.2s ease, opacity 0.2s ease",
+                  cursor: "pointer",
+                  opacity: dimmed ? 0.28 : 1,
+                },
+                hover: {
+                  fill: hoverFill,
+                  stroke: "var(--map-selected)",
+                  strokeWidth: hair * 1.8,
+                  strokeLinejoin: "round",
+                  outline: "none",
+                  pointerEvents: "fill",
+                  cursor: "pointer",
+                },
+                pressed: {
+                  fill: "var(--map-selected)",
+                  outline: "none",
+                  pointerEvents: "fill",
+                },
+              }}
+              aria-label={getPtName(country)}
+              tabIndex={-1}
+            />
+          );
+        })}
 
         {/* Alfinete pulsante no país selecionado */}
         {selectedCountry?.latlng && (
@@ -1101,6 +1308,8 @@ function WorldMapInner({
     svgUnitsPerScreenPx,
     sizeScale,
     labelEntries,
+    embeddedLabelEntries,
+    strippedParentPaths,
   ]);
 
   // Rótulos de país num useMemo PRÓPRIO, separado de mapBaseContent —
