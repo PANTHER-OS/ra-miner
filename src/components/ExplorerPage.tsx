@@ -18,6 +18,7 @@ import { CompareTray } from "@/components/CompareTray";
 import { CompareView } from "@/components/CompareView";
 import { WishlistPanel } from "@/components/WishlistPanel";
 import { AccountPanel } from "@/components/AccountPanel";
+import { PermissionOnboarding } from "@/components/PermissionOnboarding";
 import { PassportStats } from "@/components/PassportStats";
 import { usePassport, useAuthUser, CLOUD_NUDGE_EVT } from "@/lib/passport";
 import type { PassportStatus } from "@/lib/passport";
@@ -407,6 +408,8 @@ export function ExplorerPage() {
         onClose={() => setAccountOpen(false)}
         user={authUser}
       />
+
+      <PermissionOnboarding />
     </div>
   );
 }
