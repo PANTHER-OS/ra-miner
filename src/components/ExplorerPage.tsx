@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Toaster, toast } from "sonner";
 import { motion } from "framer-motion";
-import { Globe2, Compass } from "lucide-react";
+import { Globe2, Compass, User, Cloud } from "lucide-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 
 import { fetchCountries, getPtName } from "@/lib/countries";
@@ -17,8 +17,9 @@ import { TravelQuiz } from "@/components/TravelQuiz";
 import { CompareTray } from "@/components/CompareTray";
 import { CompareView } from "@/components/CompareView";
 import { WishlistPanel } from "@/components/WishlistPanel";
+import { AccountPanel } from "@/components/AccountPanel";
 import { PassportStats } from "@/components/PassportStats";
-import { usePassport } from "@/lib/passport";
+import { usePassport, useAuthUser } from "@/lib/passport";
 import type { PassportStatus } from "@/lib/passport";
 import { findCityBySlug, slugifyCityName, type CityEntry, type CityWithCountry } from "@/lib/cities";
 
@@ -55,7 +56,9 @@ export function ExplorerPage() {
   const [compareList, setCompareList] = useState<Country[]>([]);
   const [compareOpen, setCompareOpen] = useState(false);
   const [wishlistOpen, setWishlistOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const passport = usePassport();
+  const authUser = useAuthUser();
 
   const verifiedSet = useMemo(
     () => new Set(Object.keys(passport.stamps ?? {})),
@@ -253,6 +256,17 @@ export function ExplorerPage() {
 
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setAccountOpen(true)}
+              title={authUser ? authUser.email ?? "Conta" : "Fazer login"}
+              className={`grid h-8 w-8 place-items-center rounded-full border transition sm:h-9 sm:w-9 ${
+                authUser
+                  ? "border-primary/50 bg-primary/15 text-primary"
+                  : "border-border bg-surface/70 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+              }`}
+            >
+              {authUser ? <Cloud className="h-4 w-4" /> : <User className="h-4 w-4" />}
+            </button>
+            <button
               onClick={() => setQuizOpen(true)}
               className="group flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary/20 sm:px-3.5 sm:py-2"
             >
@@ -370,6 +384,12 @@ export function ExplorerPage() {
         onClose={() => setWishlistOpen(false)}
         countries={countries ?? []}
         onOpenCountry={handleSelectCountry}
+      />
+
+      <AccountPanel
+        open={accountOpen}
+        onClose={() => setAccountOpen(false)}
+        user={authUser}
       />
     </div>
   );

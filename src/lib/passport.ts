@@ -1,9 +1,12 @@
-// Passaporte Virtual — armazenamento 100% local (privado do usuário).
-// Marca países como "já visitei" (visited) ou "quero visitar" (wishlist).
+// Passaporte Virtual — armazenamento local (privado do usuário) por padrão,
+// com sincronização opcional na nuvem quando o usuário faz login (ver
+// seção "Conta + sincronização" no fim do arquivo). Sem login, tudo
+// continua funcionando exatamente como antes — nada muda de comportamento.
 // Publica um evento custom para que componentes reajam em tempo real.
 
 import { useEffect, useState } from "react";
 import type { Country } from "./countries";
+import { supabase } from "./supabase";
 
 const KEY = "mef:passport:v1";
 const EVT = "mef:passport-change";
@@ -67,6 +70,7 @@ function write(state: PassportState) {
   } catch {
     /* ignore */
   }
+  schedulePush(state);
 }
 
 
@@ -246,6 +250,7 @@ function daysBetween(isoA: string, isoB: string): number {
 export function usePassport(): PassportState {
   const [state, setState] = useState<PassportState>(() => read());
   useEffect(() => {
+    initAuthSync();
     const handler = () => setState(read());
     window.addEventListener(EVT, handler);
     window.addEventListener("storage", handler);
@@ -327,4 +332,181 @@ export function computeStats(
     hemispheres,
     hemisphereCount,
   };
+}
+
+// ================= Conta + sincronização na nuvem =================
+//
+// Tudo abaixo é ADITIVO — sem login, currentUserId fica null, schedulePush
+// vira no-op, e o app se comporta exatamente como antes (só localStorage).
+// Login é opcional, feito por link mágico (e-mail, sem senha pra criar ou
+// esquecer). Não existe sincronização em tempo real entre abas/aparelhos
+// abertos ao mesmo tempo — cada login busca o estado mais recente da nuvem
+// uma vez e funde com o local; escolhi não montar um canal realtime pra
+// isso porque é complexidade real (reconexão, conflito ao vivo) pra um
+// ganho pequeno num app onde a mesma pessoa raramente está em dois
+// aparelhos ao mesmo tempo editando o passaporte.
+
+export interface AuthUser {
+  id: string;
+  email: string | null;
+}
+
+const AUTH_EVT = "mef:auth-change";
+let currentUserId: string | null = null;
+let currentAuthUser: AuthUser | null = null;
+let authInitialized = false;
+let pushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function toAuthUser(user: { id: string; email?: string | null } | null | undefined): AuthUser | null {
+  return user ? { id: user.id, email: user.email ?? null } : null;
+}
+
+// Espera uma pausa nas escritas antes de mandar pra nuvem — sem isso, cada
+// letra digitada na anotação de um plano de viagem (ver WishlistPanel)
+// dispararia uma requisição própria.
+function schedulePush(state: PassportState) {
+  if (!currentUserId) return;
+  const userId = currentUserId;
+  if (pushTimer) clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => {
+    pushToSupabase(userId, state);
+  }, 1200);
+}
+
+async function pushToSupabase(userId: string, state: PassportState) {
+  try {
+    await supabase.from("passports").upsert({
+      user_id: userId,
+      visited: state.visited,
+      wishlist: state.wishlist,
+      stamps: state.stamps,
+      plans: state.plans,
+    });
+  } catch {
+    // Falha silenciosa — é sincronização em segundo plano; a próxima
+    // escrita local tenta de novo. Não vale interromper o usuário por
+    // causa disso.
+  }
+}
+
+// Roda uma vez por login: busca o estado salvo na nuvem e funde com o que
+// já existe neste aparelho, sem descartar nada de nenhum dos dois lados.
+async function mergeRemoteIntoLocal(userId: string) {
+  const { data, error } = await supabase
+    .from("passports")
+    .select("visited, wishlist, stamps, plans")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) return;
+
+  const local = read();
+  if (!data) {
+    // Primeiro login deste usuário — ainda não existe linha na nuvem, então
+    // só sobe o que já tem localmente (pode ser vazio, tudo bem).
+    await pushToSupabase(userId, local);
+    return;
+  }
+
+  const remote: PassportState = {
+    visited: Array.isArray(data.visited) ? (data.visited as string[]) : [],
+    wishlist: Array.isArray(data.wishlist) ? (data.wishlist as string[]) : [],
+    stamps: (data.stamps as Record<string, Stamp>) ?? {},
+    plans: (data.plans as Record<string, TripPlan>) ?? {},
+  };
+
+  // "Visitei" nunca perde carimbo — união dos dois lados. Um país que
+  // esteja em QUALQUER um dos dois como visitado vira visitado no
+  // resultado (mesma prioridade que já existe dentro de um único
+  // aparelho: visited > wishlist), mesmo que o outro lado ainda o tivesse
+  // só como lista de desejos.
+  const visitedSet = new Set([...local.visited, ...remote.visited]);
+  const wishlistSet = new Set([...local.wishlist, ...remote.wishlist]);
+  for (const code of visitedSet) wishlistSet.delete(code);
+
+  // Carimbo verificado: fica o mais recente por país (cada Stamp já guarda
+  // a data em que foi feito).
+  const stamps: Record<string, Stamp> = { ...remote.stamps };
+  for (const [code, localStamp] of Object.entries(local.stamps)) {
+    const remoteStamp = stamps[code];
+    if (!remoteStamp || new Date(localStamp.at) > new Date(remoteStamp.at)) {
+      stamps[code] = localStamp;
+    }
+  }
+
+  // Plano de viagem não tem timestamp próprio — prioriza o local (o
+  // aparelho que está logando agora) em caso de conflito no mesmo país, e
+  // remove qualquer plano de país que não sobrou na lista de desejos
+  // mesclada (mesma regra de setStatus: plano só existe pra quem está na
+  // lista).
+  const plans: Record<string, TripPlan> = { ...remote.plans, ...local.plans };
+  for (const code of Object.keys(plans)) {
+    if (!wishlistSet.has(code)) delete plans[code];
+  }
+
+  const merged: PassportState = {
+    visited: [...visitedSet],
+    wishlist: [...wishlistSet],
+    stamps,
+    plans,
+  };
+  write(merged); // grava local + agenda o envio de volta pra nuvem
+}
+
+function emitAuthChange() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(AUTH_EVT));
+}
+
+// Assina as mudanças de sessão do Supabase uma única vez (idempotente —
+// chamado por todo componente que usa useAuthUser/usePassport, mas só o
+// primeiro de fato registra o listener). Dispara a fusão nuvem+local
+// sempre que um login novo acontece (não a cada re-render).
+//
+// Só esse listener (não um getSession() separado): onAuthStateChange já
+// dispara um evento "INITIAL_SESSION" assim que assinado, com a sessão
+// atual (vinda do localStorage se já havia login) — ter os dois disparava
+// a fusão duas vezes na carga inicial, uma corrida inofensiva mas inútil.
+function initAuthSync() {
+  if (authInitialized || typeof window === "undefined") return;
+  authInitialized = true;
+
+  supabase.auth.onAuthStateChange((_event, session) => {
+    const user = toAuthUser(session?.user);
+    const isNewLogin = user?.id !== currentUserId && Boolean(user);
+    currentUserId = user?.id ?? null;
+    currentAuthUser = user;
+    emitAuthChange();
+    if (isNewLogin) mergeRemoteIntoLocal(user!.id);
+  });
+}
+
+/** Manda um link de login por e-mail — sem senha pra criar, lembrar ou
+ * vazar. Clicar no link volta pro app já autenticado. */
+export async function signInWithEmail(email: string): Promise<{ error?: string }> {
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: {
+      emailRedirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
+    },
+  });
+  return error ? { error: error.message } : {};
+}
+
+export async function signOutAccount() {
+  await supabase.auth.signOut();
+}
+
+/** Hook reativo com o usuário logado (ou null) — null tanto "carregando"
+ * quanto "deslogado" na prática, já que o app funciona igual nos dois
+ * casos (só localStorage) até a sessão carregar. */
+export function useAuthUser(): AuthUser | null {
+  const [user, setUser] = useState<AuthUser | null>(currentAuthUser);
+  useEffect(() => {
+    initAuthSync();
+    setUser(currentAuthUser);
+    const handler = () => setUser(currentAuthUser);
+    window.addEventListener(AUTH_EVT, handler);
+    return () => window.removeEventListener(AUTH_EVT, handler);
+  }, []);
+  return user;
 }
