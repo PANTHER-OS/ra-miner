@@ -212,28 +212,26 @@ function WorldMapInner({
   // recálculo). Por isso só montamos o mapa depois que o layout de fato
   // se assentou.
   const [layoutSettled, setLayoutSettled] = useState(false);
-  // O ZoomableGroup só avisava a mudança de zoom/pan no FIM do gesto
-  // (onMoveEnd) — durante o meio do gesto (rolar o scroll, arrastar/beliscar
-  // no celular) o estado React (`zoom`) ficava parado enquanto o mapa em si
-  // já tinha se movido visualmente (a lib anima isso por conta própria).
-  // Como o tamanho do nome do país é recalculado a partir desse estado (ver
-  // visibleLabelEntries), o resultado era o nome ficar "parado" durante
-  // todo o gesto e só "saltar" pro tamanho certo de uma vez quando o dedo
-  // soltava — a "diminuída seca" sem nenhuma suavidade. A correção: também
-  // escutar `onMove` (dispara em CADA frame do gesto, contínuo — mas só dá
-  // `zoom`, não `coordinates`; o pan continua só em onMoveEnd, que é tudo
-  // que os rótulos de país precisam, já que visibleLabelEntries não
-  // depende de `center` de propósito), passando por um
-  // requestAnimationFrame pra nunca atualizar o estado mais rápido do que
-  // a tela realmente repinta — sincroniza o React com o mesmo ritmo que o
-  // navegador já está desenhando de qualquer forma, sem gastar mais.
+  // `zoom` só muda no FIM do gesto (onMoveEnd) — de propósito: é dele que
+  // markerGroups e o conteúdo pesado do mapa (todas as ~180 formas de
+  // país, clustering de cidade) dependem, e recalcular tudo isso a cada
+  // quadro de um gesto de zoom/arraste deixava o mapa TRAVADO durante o
+  // gesto (testado: uma primeira tentativa de fazer `zoom` contínuo
+  // resolveu a suavidade do texto mas quebrou a fluidez do zoom/arraste
+  // em si, muito pior). `labelZoom` é a via mais barata pra suavidade:
+  // atualiza em CADA quadro do gesto (via onMove + requestAnimationFrame,
+  // nunca mais rápido que a tela realmente repinta), mas só alimenta o
+  // tamanho/teto dos NOMES de país — um cálculo bem mais leve (ordenar e
+  // decolidir ~200 rótulos) que fica isolado no próprio useMemo
+  // (mapLabelsContent, ver abaixo), sem arrastar o resto do mapa junto.
+  const [labelZoom, setLabelZoom] = useState(1);
   const pendingZoomRef = useRef<number | null>(null);
   const moveRafRef = useRef<number | null>(null);
   const flushPendingZoom = useCallback(() => {
     moveRafRef.current = null;
     const pending = pendingZoomRef.current;
     if (pending == null) return;
-    setZoom(pending);
+    setLabelZoom(pending);
   }, []);
   const handleZoomMove = useCallback(
     (z: number) => {
@@ -249,6 +247,15 @@ function WorldMapInner({
       if (moveRafRef.current != null) cancelAnimationFrame(moveRafRef.current);
     };
   }, []);
+  // Mantém labelZoom sincronizado sempre que `zoom` "de verdade" mudar —
+  // cobre TODOS os saltos discretos (botão +/-, "redefinir", voar até um
+  // país buscado, cidade focada) sem precisar duplicar `setLabelZoom` em
+  // cada um desses lugares. Durante um gesto contínuo de scroll/pinça,
+  // `zoom` fica parado (só muda no fim, ver onMoveEnd), então esse efeito
+  // não interfere no caminho rápido do rAF — os dois nunca competem.
+  useEffect(() => {
+    setLabelZoom(zoom);
+  }, [zoom]);
   // Força o ZoomableGroup a remontar do zero ao "redefinir" — evita que o
   // zoom/pan interno da biblioteca herde uma transformação antiga e volte
   // deslocado para um dos lados em vez de perfeitamente centralizado.
@@ -702,7 +709,7 @@ function WorldMapInner({
     // tamanho de tela sem precisar de sizeScale. Multiplicar pelos dois
     // era bug: no celular (sizeScale ~3x) o texto nascia bem maior que o
     // teto de 38px pretendido.
-    const screenPxPerSvgUnit = (mapWidthPx > 0 ? mapWidthPx / 800 : 1216 / 800) * zoom;
+    const screenPxPerSvgUnit = (mapWidthPx > 0 ? mapWidthPx / 800 : 1216 / 800) * labelZoom;
     const screenCapSvg = MAX_LABEL_SCREEN_PX / screenPxPerSvgUnit;
 
     const sized = labelEntries
@@ -747,12 +754,19 @@ function WorldMapInner({
       result.push({ rsmKey, layout, country, fontSizeSvg: s.fontSizeSvg });
     }
     return result;
-  }, [labelEntries, zoom, mapWidthPx]);
+  }, [labelEntries, labelZoom, mapWidthPx]);
 
-  // Todo o conteúdo do SVG (esferas, meridianos, países) fica memoizado à
-  // parte: só recalcula quando algo que realmente muda a pintura do mapa
-  // muda — não a cada hover ou movimento do mouse.
-  const mapContent = useMemo(() => {
+  // Todo o conteúdo "pesado" do SVG (esferas, meridianos, ~180 formas de
+  // país, cidades/clusters) fica memoizado à parte, e SEPARADO do rótulo
+  // de nome de país (ver mapLabelsContent, logo abaixo) — são dois
+  // useMemo independentes de propósito. Rótulo de país precisa recalcular
+  // a cada quadro de um gesto de zoom pra ficar suave (ver labelZoom); se
+  // estivesse tudo num useMemo só, cada um desses quadros forçaria
+  // reconstruir TODAS essas ~180 formas + clustering de cidade de novo,
+  // o que trava o zoom/arraste inteiro (bug real, reportado e corrigido:
+  // ver commit desta mudança). Com os dois separados, o quadro a quadro
+  // do gesto só mexe no useMemo pequeno e barato dos rótulos.
+  const mapBaseContent = useMemo(() => {
     return (
       <>
         <Sphere
@@ -879,79 +893,6 @@ function WorldMapInner({
             });
           }}
         </Geographies>
-
-        {/* Nome do país escrito sobre o próprio território — geometria e
-            tamanho vêm de visibleLabelEntries (já filtrado + decluttered
-            pro zoom atual, ver useMemo acima). clipPaths ficam num <defs> à
-            parte, todos juntos, e são referenciados pelo rsmKey de cada
-            país — ver src/lib/countryLabels.ts pro porquê da geometria
-            (polylabel, rotação, clip).
-
-            Entrada/saída com fade suave (estilo Google Maps) — dois níveis
-            de <g> de propósito, cada um com UM job só:
-              1. clip-path, sem nenhum transform — o clip foi desenhado nas
-                 coordenadas ABSOLUTAS do país; se o transform de posição
-                 entrasse aqui, o recorte se desalinharia da forma real.
-              2. translate até o ponto do rótulo — depois disso, "0,0" já É
-                 o centro do país.
-            Só a OPACIDADE anima (sem scale): o tamanho do texto já cresce
-            suave sozinho, porque `zoom` agora atualiza continuamente
-            durante o gesto (ver handleZoomMove) — animar um scale EM CIMA
-            disso duplicaria o movimento. Nada de motion.g com transform
-            aqui de propósito: um teste isolado mostrou que não era a causa
-            de nenhum bug, mas manter só opacidade evita qualquer risco de
-            CSS transform brigar com o clip-path num navegador específico. */}
-        {visibleLabelEntries.length > 0 && (
-          <>
-            <defs>
-              {visibleLabelEntries.map((e) => (
-                <clipPath key={`clip-${e.rsmKey}`} id={`label-clip-${e.rsmKey}`}>
-                  <path d={e.layout.clipPath} />
-                </clipPath>
-              ))}
-            </defs>
-            <AnimatePresence>
-              {visibleLabelEntries.map((e) => {
-                const { layout, country, rsmKey, fontSizeSvg } = e;
-                const dimmed = isFiltered(country);
-                return (
-                  <g
-                    key={`label-${rsmKey}`}
-                    clipPath={`url(#label-clip-${rsmKey})`}
-                    style={{ pointerEvents: "none" }}
-                  >
-                    <g transform={`translate(${layout.x} ${layout.y})`}>
-                      <motion.g
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: dimmed ? 0.28 : 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.22, ease: "easeOut" }}
-                      >
-                        <text
-                          x={0}
-                          y={0}
-                          transform={layout.angle ? `rotate(${layout.angle})` : undefined}
-                          textAnchor="middle"
-                          dominantBaseline="central"
-                          fontSize={fontSizeSvg}
-                          fontWeight={700}
-                          letterSpacing={fontSizeSvg * 0.01}
-                          fill="oklch(0.97 0.015 90 / 0.94)"
-                          stroke="oklch(0.09 0.02 260 / 0.55)"
-                          strokeWidth={fontSizeSvg * 0.045}
-                          paintOrder="stroke"
-                          style={{ userSelect: "none" }}
-                        >
-                          {getPtName(country)}
-                        </text>
-                      </motion.g>
-                    </g>
-                  </g>
-                );
-              })}
-            </AnimatePresence>
-          </>
-        )}
 
         {/* Alfinete pulsante no país selecionado */}
         {selectedCountry?.latlng && (
@@ -1160,9 +1101,81 @@ function WorldMapInner({
     svgUnitsPerScreenPx,
     sizeScale,
     labelEntries,
-    visibleLabelEntries,
-    mapWidthPx,
   ]);
+
+  // Rótulos de país num useMemo PRÓPRIO, separado de mapBaseContent —
+  // depende de visibleLabelEntries (que por sua vez usa labelZoom,
+  // contínuo) e por isso recalcula em cada quadro de um gesto de zoom,
+  // mas SÓ esse pedaço pequeno da árvore React recalcula: as ~180 formas
+  // de país e o clustering de cidade em mapBaseContent não são afetados.
+  const mapLabelsContent = useMemo(() => {
+    if (visibleLabelEntries.length === 0) return null;
+    return (
+      <>
+        <defs>
+          {visibleLabelEntries.map((e) => (
+            <clipPath key={`clip-${e.rsmKey}`} id={`label-clip-${e.rsmKey}`}>
+              <path d={e.layout.clipPath} />
+            </clipPath>
+          ))}
+        </defs>
+        {/* Entrada/saída com fade suave (estilo Google Maps) — dois níveis
+            de <g> de propósito, cada um com UM job só:
+              1. clip-path, sem nenhum transform — o clip foi desenhado nas
+                 coordenadas ABSOLUTAS do país; se o transform de posição
+                 entrasse aqui, o recorte se desalinharia da forma real.
+              2. translate até o ponto do rótulo — depois disso, "0,0" já É
+                 o centro do país.
+            Só a OPACIDADE anima (sem scale): o tamanho do texto já cresce
+            suave sozinho, porque `labelZoom` atualiza continuamente
+            durante o gesto — animar um scale EM CIMA disso duplicaria o
+            movimento. Nada de motion.g com transform aqui de propósito:
+            um teste isolado mostrou que não era a causa de nenhum bug,
+            mas manter só opacidade evita qualquer risco de CSS transform
+            brigar com o clip-path num navegador específico. */}
+        <AnimatePresence>
+          {visibleLabelEntries.map((e) => {
+            const { layout, country, rsmKey, fontSizeSvg } = e;
+            const dimmed = isFiltered(country);
+            return (
+              <g
+                key={`label-${rsmKey}`}
+                clipPath={`url(#label-clip-${rsmKey})`}
+                style={{ pointerEvents: "none" }}
+              >
+                <g transform={`translate(${layout.x} ${layout.y})`}>
+                  <motion.g
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: dimmed ? 0.28 : 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.22, ease: "easeOut" }}
+                  >
+                    <text
+                      x={0}
+                      y={0}
+                      transform={layout.angle ? `rotate(${layout.angle})` : undefined}
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      fontSize={fontSizeSvg}
+                      fontWeight={700}
+                      letterSpacing={fontSizeSvg * 0.01}
+                      fill="oklch(0.97 0.015 90 / 0.94)"
+                      stroke="oklch(0.09 0.02 260 / 0.55)"
+                      strokeWidth={fontSizeSvg * 0.045}
+                      paintOrder="stroke"
+                      style={{ userSelect: "none" }}
+                    >
+                      {getPtName(country)}
+                    </text>
+                  </motion.g>
+                </g>
+              </g>
+            );
+          })}
+        </AnimatePresence>
+      </>
+    );
+  }, [visibleLabelEntries, isFiltered]);
 
   return (
     <div className="relative w-full">
@@ -1206,8 +1219,9 @@ function WorldMapInner({
             onMoveEnd={({ zoom: z, coordinates }) => {
               // Cancela qualquer atualização pendente do rAF (senão ela
               // podia disparar LOGO DEPOIS dessa e, numa corrida rara,
-              // sobrescrever o valor final com um frame intermediário já
-              // desatualizado) e aplica o estado final imediatamente.
+              // sobrescrever o valor final de labelZoom com um frame
+              // intermediário já desatualizado — o efeito abaixo já vai
+              // sincronizar labelZoom com esse `z` de qualquer forma).
               if (moveRafRef.current != null) {
                 cancelAnimationFrame(moveRafRef.current);
                 moveRafRef.current = null;
@@ -1223,7 +1237,8 @@ function WorldMapInner({
               [800, 600],
             ]}
           >
-            {mapContent}
+            {mapBaseContent}
+            {mapLabelsContent}
           </ZoomableGroup>
         </ComposableMap>
       )}
