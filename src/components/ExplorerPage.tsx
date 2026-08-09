@@ -249,7 +249,7 @@ export function ExplorerPage() {
                 Explorador global
               </div>
               <h1 className="text-lg font-semibold leading-tight text-foreground sm:text-xl">
-                Mundo em <span className="gold-text">Foco</span>
+                Atl<span className="gold-text">oura</span>
               </h1>
             </div>
           </motion.div>

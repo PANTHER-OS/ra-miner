@@ -19,10 +19,10 @@ export const Route = createFileRoute("/_explorer/pais/$cca2/")({
     const { country } = loaderData;
     const name = getPtNameServer(country);
     const capital = country.capital?.[0];
-    const title = `${name} — Mundo em Foco`;
+    const title = `${name} — Atloura`;
     const description = `Descubra ${name}${capital ? `: capital ${capital}` : ""}${
       country.population ? `, ${(country.population / 1_000_000).toFixed(1).replace(/\.0$/, "")}M de habitantes` : ""
-    }. Roteiro de 24h, principais atrações e curiosidades no Mundo em Foco.`;
+    }. Roteiro de 24h, principais atrações e curiosidades na Atloura.`;
     const url = `${BASE_URL}/pais/${country.cca2.toLowerCase()}`;
     return {
       meta: [

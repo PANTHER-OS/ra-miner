@@ -122,7 +122,7 @@ export function TravelQuiz({ open, onClose, countries, onOpenCountry }: Props) {
     const full = `${text}\n${url}`;
     if (navigator.share) {
       try {
-        await navigator.share({ title: "Mundo em Foco", text: full });
+        await navigator.share({ title: "Atloura", text: full });
         return;
       } catch {
         /* fallthrough */

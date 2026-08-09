@@ -20,12 +20,12 @@ export const Route = createFileRoute("/_explorer/pais/$cca2/$cidade")({
     if (!loaderData) return {};
     const { country, city } = loaderData;
     const countryName = getPtNameServer(country);
-    const title = `${city.name}, ${countryName} — Mundo em Foco`;
+    const title = `${city.name}, ${countryName} — Atloura`;
     const description = city.landmark
-      ? `Conheça ${city.name}, marco natural em ${countryName}. Roteiro, atrações e curiosidades no Mundo em Foco.`
+      ? `Conheça ${city.name}, marco natural em ${countryName}. Roteiro, atrações e curiosidades na Atloura.`
       : `Conheça ${city.name}, em ${countryName}${
           city.pop ? ` — ${(city.pop / 1_000_000 >= 1 ? `${(city.pop / 1_000_000).toFixed(1).replace(/\.0$/, "")}M` : `${Math.round(city.pop / 1000)} mil`)} habitantes` : ""
-        }. Roteiro, atrações e curiosidades no Mundo em Foco.`;
+        }. Roteiro, atrações e curiosidades na Atloura.`;
     const url = `${BASE_URL}/pais/${country.cca2.toLowerCase()}/${params.cidade}`;
     return {
       meta: [
