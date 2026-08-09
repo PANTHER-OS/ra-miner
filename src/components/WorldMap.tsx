@@ -14,6 +14,7 @@ import type { Country } from "@/lib/countries";
 import { getPtName } from "@/lib/countries";
 import type { PassportStatus } from "@/lib/passport";
 import { getVisibleCities, projectPoint, PROJECTION_SCALE, type CityWithCountry } from "@/lib/cities";
+import { useI18n } from "@/lib/i18n/context";
 import {
   computeCountryLabel,
   geometryToPath,
@@ -192,6 +193,7 @@ function WorldMapInner({
   verifiedSet,
   viewMode = "all",
 }: Props) {
+  const { t } = useI18n();
   const [zoom, setZoom] = useState(1);
   const [center, setCenter] = useState<[number, number]>(HOME_CENTER);
   const [hovered, setHovered] = useState<Country | null>(null);
@@ -1504,11 +1506,11 @@ function WorldMapInner({
       {/* Controles */}
       <div className="absolute right-3 top-3 flex flex-col items-center gap-1.5">
         <div className="flex flex-col overflow-hidden rounded-full border border-border bg-surface/80 shadow-card backdrop-blur">
-          <ControlBtn label="Aumentar zoom" onClick={zoomIn} disabled={zoom >= effectiveMaxZoom - 0.001}>
+          <ControlBtn label={t("mapZoomIn")} onClick={zoomIn} disabled={zoom >= effectiveMaxZoom - 0.001}>
             <Plus className="h-4 w-4" />
           </ControlBtn>
           <span aria-hidden className="mx-auto h-px w-5 bg-border" />
-          <ControlBtn label="Diminuir zoom" onClick={zoomOut} disabled={zoom <= MIN_ZOOM + 0.001}>
+          <ControlBtn label={t("mapZoomOut")} onClick={zoomOut} disabled={zoom <= MIN_ZOOM + 0.001}>
             <Minus className="h-4 w-4" />
           </ControlBtn>
         </div>
@@ -1519,7 +1521,7 @@ function WorldMapInner({
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.8 }}
               onClick={reset}
-              aria-label="Voltar à visão do mundo"
+              aria-label={t("mapReset")}
               className="grid h-10 w-10 place-items-center rounded-full border border-border bg-surface/80 text-muted-foreground shadow-card backdrop-blur transition-colors hover:border-primary/50 hover:text-primary sm:h-9 sm:w-9"
             >
               <RotateCcw className="h-3.5 w-3.5" />
@@ -1542,14 +1544,14 @@ function WorldMapInner({
 
       {/* Legenda (sobre o mapa apenas em telas maiores) */}
       <div className="pointer-events-none absolute bottom-3 left-3 hidden flex-wrap items-center gap-x-2.5 gap-y-1 rounded-full border border-border bg-surface/70 px-3 py-1.5 text-[10px] text-muted-foreground backdrop-blur sm:flex">
-        <LegendDot color="var(--map-verified)" label="verificado" glow />
-        <LegendDot color="var(--map-visited)" label="declarei" />
-        <LegendDot color="var(--map-wishlist)" label="quero ir" />
+        <LegendDot color="var(--map-verified)" label={t("mapLegendVerified")} glow />
+        <LegendDot color="var(--map-visited)" label={t("mapLegendVisited")} />
+        <LegendDot color="var(--map-wishlist)" label={t("mapLegendWishlist")} />
       </div>
 
       {/* Dica de navegação */}
       <div className="pointer-events-none absolute bottom-3 right-3 hidden rounded-full border border-border bg-surface/60 px-2.5 py-1 text-[10px] text-muted-foreground/80 backdrop-blur sm:block">
-        arraste para mover · role para dar zoom
+        {t("mapHint")}
       </div>
 
       {/* Âncora da tooltip: só o transform é atualizado a cada mousemove,
@@ -1690,10 +1692,10 @@ function WorldMapInner({
 
       {/* Legenda no celular, abaixo do mapa */}
       <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground sm:hidden">
-        <LegendDot color="var(--map-verified)" label="verificado" glow />
-        <LegendDot color="var(--map-visited)" label="declarei" />
-        <LegendDot color="var(--map-wishlist)" label="quero ir" />
-        <span className="text-muted-foreground/60">· toque num país</span>
+        <LegendDot color="var(--map-verified)" label={t("mapLegendVerified")} glow />
+        <LegendDot color="var(--map-visited)" label={t("mapLegendVisited")} />
+        <LegendDot color="var(--map-wishlist)" label={t("mapLegendWishlist")} />
+        <span className="text-muted-foreground/60">· {t("mapMobileHint")}</span>
       </div>
     </div>
   );

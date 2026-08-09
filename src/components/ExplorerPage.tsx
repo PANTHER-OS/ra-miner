@@ -2,8 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Toaster, toast } from "sonner";
 import { motion } from "framer-motion";
-import { Globe2, Compass, User, Cloud } from "lucide-react";
+import { Globe2, Compass, User, Cloud, Settings } from "lucide-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
+import { useI18n } from "@/lib/i18n/context";
+import { SettingsPanel } from "@/components/SettingsPanel";
 
 import { fetchCountries, getPtName } from "@/lib/countries";
 import type { Country } from "@/lib/countries";
@@ -58,8 +60,10 @@ export function ExplorerPage() {
   const [compareOpen, setCompareOpen] = useState(false);
   const [wishlistOpen, setWishlistOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const passport = usePassport();
   const authUser = useAuthUser();
+  const { t } = useI18n();
 
   const verifiedSet = useMemo(
     () => new Set(Object.keys(passport.stamps ?? {})),
@@ -263,7 +267,7 @@ export function ExplorerPage() {
             </span>
             <div>
               <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-                Explorador global
+                {t("appTagline")}
               </div>
               <h1 className="text-lg font-semibold leading-tight text-foreground sm:text-xl">
                 Atl<span className="gold-text">oura</span>
@@ -273,8 +277,16 @@ export function ExplorerPage() {
 
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setSettingsOpen(true)}
+              title={t("settingsTitle")}
+              aria-label={t("settingsTitle")}
+              className="grid h-8 w-8 place-items-center rounded-full border border-border bg-surface/70 text-muted-foreground transition hover:border-primary/40 hover:text-foreground sm:h-9 sm:w-9"
+            >
+              <Settings className="h-4 w-4" />
+            </button>
+            <button
               onClick={() => setAccountOpen(true)}
-              title={authUser ? authUser.email ?? "Conta" : "Fazer login"}
+              title={authUser ? authUser.email ?? t("accountLabel") : t("accountLogin")}
               className={`grid h-8 w-8 place-items-center rounded-full border transition sm:h-9 sm:w-9 ${
                 authUser
                   ? "border-primary/50 bg-primary/15 text-primary"
@@ -288,19 +300,11 @@ export function ExplorerPage() {
               className="group flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary/20 sm:px-3.5 sm:py-2"
             >
               <Compass className="h-3.5 w-3.5 transition group-hover:rotate-12" />
-              <span className="hidden xs:inline">Quiz</span>
-              <span className="xs:hidden">Quiz</span>
-              <span className="hidden sm:inline">de compatibilidade</span>
+              <span>{t("navQuiz")}</span>
+              <span className="hidden sm:inline">{t("navQuizSuffix")}</span>
             </button>
             <div className="hidden text-right text-xs text-muted-foreground sm:block">
-              {countries ? (
-                <>
-                  <span className="font-semibold text-foreground">{countries.length}</span>{" "}
-                  países
-                </>
-              ) : (
-                "carregando..."
-              )}
+              {countries ? t("navCountriesCount", { count: countries.length }) : t("navLoading")}
             </div>
           </div>
         </div>
@@ -360,9 +364,7 @@ export function ExplorerPage() {
           </motion.div>
         )}
 
-        <p className="text-center text-xs text-muted-foreground/70">
-          Dados abertos de países · seu passaporte fica salvo só neste aparelho
-        </p>
+        <p className="text-center text-xs text-muted-foreground/70">{t("footerNote")}</p>
       </main>
 
       <CountryPanel
@@ -408,6 +410,8 @@ export function ExplorerPage() {
         onClose={() => setAccountOpen(false)}
         user={authUser}
       />
+
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
       <PermissionOnboarding />
     </div>

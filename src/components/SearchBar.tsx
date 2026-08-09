@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import type { Country } from "@/lib/countries";
 import { getPtName, getRegionPt } from "@/lib/countries";
 import { getAllCities, formatCityMeta, type CityWithCountry } from "@/lib/cities";
+import { useI18n } from "@/lib/i18n/context";
 
 interface Props {
   countries: Country[];
@@ -17,6 +18,7 @@ type Result =
   | { kind: "city"; city: CityWithCountry; country: Country; score: number };
 
 export function SearchBar({ countries, onPick, onPickCity }: Props) {
+  const { t } = useI18n();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -141,9 +143,9 @@ export function SearchBar({ countries, onPick, onPickCity }: Props) {
           role="combobox"
           aria-expanded={open && results.length > 0}
           aria-autocomplete="list"
-          placeholder="Buscar país ou cidade..."
+          placeholder={t("searchPlaceholder")}
           className="h-11 w-full rounded-full border border-border bg-surface/70 pl-11 pr-10 text-sm font-medium text-foreground placeholder:text-muted-foreground/70 backdrop-blur transition-all focus:border-primary/60 focus:outline-none focus:ring-2 focus:ring-ring"
-          aria-label="Buscar país ou cidade"
+          aria-label={t("searchAriaLabel")}
         />
         {q && (
           <button
@@ -152,7 +154,7 @@ export function SearchBar({ countries, onPick, onPickCity }: Props) {
               inputRef.current?.focus();
             }}
             className="absolute right-3 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            aria-label="Limpar busca"
+            aria-label={t("searchClear")}
           >
             <X className="h-3.5 w-3.5" />
           </button>
