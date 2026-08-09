@@ -848,7 +848,21 @@ function WorldMapInner({
             pro zoom atual, ver useMemo acima). clipPaths ficam num <defs> à
             parte, todos juntos, e são referenciados pelo rsmKey de cada
             país — ver src/lib/countryLabels.ts pro porquê da geometria
-            (polylabel, rotação, clip). */}
+            (polylabel, rotação, clip).
+
+            Entrada/saída animada (estilo Google Maps: o nome se revela com
+            um fade + leve "zoom" suave, não pisca do nada) — três níveis de
+            <g> de propósito, cada um com UM job só:
+              1. clip-path, sem nenhum transform — o clip foi desenhado nas
+                 coordenadas ABSOLUTAS do país; se o transform de posição
+                 entrasse aqui, o recorte se desalinharia da forma real.
+              2. translate até o ponto do rótulo — depois disso, "0,0" já É
+                 o centro do país, então o filho não precisa mais saber a
+                 posição.
+              3. motion.g com o fade/scale animado — rodando em "0,0" (o
+                 centro local já traduzido acima), a escala cresce/encolhe
+                 exatamente a partir do próprio ponto do rótulo, não do
+                 canto do mapa. */}
         {visibleLabelEntries.length > 0 && (
           <>
             <defs>
@@ -858,36 +872,46 @@ function WorldMapInner({
                 </clipPath>
               ))}
             </defs>
-            {visibleLabelEntries.map((e) => {
-              const { layout, country, rsmKey, fontSizeSvg } = e;
-              const dimmed = isFiltered(country);
-              return (
-                <g
-                  key={`label-${rsmKey}`}
-                  clipPath={`url(#label-clip-${rsmKey})`}
-                  opacity={dimmed ? 0.28 : 1}
-                  style={{ transition: "opacity 0.2s ease", pointerEvents: "none" }}
-                >
-                  <text
-                    x={layout.x}
-                    y={layout.y}
-                    transform={layout.angle ? `rotate(${layout.angle} ${layout.x} ${layout.y})` : undefined}
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    fontSize={fontSizeSvg}
-                    fontWeight={700}
-                    letterSpacing={fontSizeSvg * 0.01}
-                    fill="oklch(0.97 0.015 90 / 0.94)"
-                    stroke="oklch(0.09 0.02 260 / 0.55)"
-                    strokeWidth={fontSizeSvg * 0.045}
-                    paintOrder="stroke"
-                    style={{ userSelect: "none" }}
+            <AnimatePresence>
+              {visibleLabelEntries.map((e) => {
+                const { layout, country, rsmKey, fontSizeSvg } = e;
+                const dimmed = isFiltered(country);
+                return (
+                  <g
+                    key={`label-${rsmKey}`}
+                    clipPath={`url(#label-clip-${rsmKey})`}
+                    style={{ pointerEvents: "none" }}
                   >
-                    {getPtName(country)}
-                  </text>
-                </g>
-              );
-            })}
+                    <g transform={`translate(${layout.x} ${layout.y})`}>
+                      <motion.g
+                        initial={{ opacity: 0, scale: 0.65 }}
+                        animate={{ opacity: dimmed ? 0.28 : 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.65 }}
+                        transition={{ type: "spring", stiffness: 260, damping: 26 }}
+                      >
+                        <text
+                          x={0}
+                          y={0}
+                          transform={layout.angle ? `rotate(${layout.angle})` : undefined}
+                          textAnchor="middle"
+                          dominantBaseline="central"
+                          fontSize={fontSizeSvg}
+                          fontWeight={700}
+                          letterSpacing={fontSizeSvg * 0.01}
+                          fill="oklch(0.97 0.015 90 / 0.94)"
+                          stroke="oklch(0.09 0.02 260 / 0.55)"
+                          strokeWidth={fontSizeSvg * 0.045}
+                          paintOrder="stroke"
+                          style={{ userSelect: "none" }}
+                        >
+                          {getPtName(country)}
+                        </text>
+                      </motion.g>
+                    </g>
+                  </g>
+                );
+              })}
+            </AnimatePresence>
           </>
         )}
 
