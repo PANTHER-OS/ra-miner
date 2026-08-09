@@ -14,6 +14,12 @@ import type { Country } from "@/lib/countries";
 import { getPtName } from "@/lib/countries";
 import type { PassportStatus } from "@/lib/passport";
 import { getVisibleCities, projectPoint, PROJECTION_SCALE, type CityWithCountry } from "@/lib/cities";
+import {
+  computeCountryLabel,
+  APPROX_CHAR_WIDTH_FACTOR,
+  type CountryLabelLayout,
+  type GeoGeometry,
+} from "@/lib/countryLabels";
 
 const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
@@ -78,6 +84,14 @@ const COUNTRY_PIN_COLOR = "oklch(0.75 0.13 220)"; // azul — distingue de cidad
 // como só sobra sozinho na tela quem está a pelo menos 44px de qualquer
 // outro marcador, duas áreas de toque de 20px nunca se sobrepõem.
 const TOUCH_HIT_RADIUS_PX = 20;
+
+// Rótulo de país escrito sobre o próprio território (ver src/lib/countryLabels.ts
+// pra geometria: onde nasce, que tamanho tem, e o clip-path que garante que
+// nunca ultrapassa a fronteira). Esses dois limites são só de TELA — abaixo
+// do mínimo o texto vira ruído ilegível (nem desenha); acima do máximo, um
+// país gigante bem no fundo do zoom mostraria letras enormes demais.
+const MIN_LABEL_SCREEN_PX = 8;
+const MAX_LABEL_SCREEN_PX = 38;
 
 interface CountryPin {
   country: Country;
@@ -156,7 +170,14 @@ type GeoFeature = {
   rsmKey: string;
   id: string; // numeric id (matches ccn3)
   properties: { name: string };
+  geometry: GeoGeometry;
 };
+
+interface CountryLabelEntry {
+  rsmKey: string;
+  layout: CountryLabelLayout;
+  country: Country;
+}
 
 function WorldMapInner({
   countries,
@@ -179,6 +200,10 @@ function WorldMapInner({
   // pra descobrir quais países da nossa lista NÃO têm forma própria no mapa
   // e por isso precisam do alfinete de reserva.
   const [presentCcn3, setPresentCcn3] = useState<Set<string> | null>(null);
+  // Layout (posição, tamanho, rotação, clip-path) do rótulo de cada país que
+  // TEM forma própria na topologia — calculado uma única vez (é geometria
+  // pura, não muda com zoom/pan/hover), igual presentCcn3 acima.
+  const [labelEntries, setLabelEntries] = useState<CountryLabelEntry[] | null>(null);
   // O ZoomableGroup calcula a posição inicial a partir do tamanho REAL do
   // container no momento em que monta. Se as fontes (Google Fonts, via
   // <link>) ainda não carregaram, o texto acima do mapa pode mudar de
@@ -616,6 +641,70 @@ function WorldMapInner({
     });
   }, [center, zoom, missingCountryPins, touchTarget, svgUnitsPerScreenPx, sizeScale]);
 
+  // Rótulos de país (nome sobre o próprio território) prontos pra desenhar
+  // NESTE zoom: filtra quem é grande o bastante pra ler (screen cap + piso
+  // de legibilidade, ver constantes no topo) e resolve colisão entre
+  // vizinhos — sem isso, um país grande do lado de um médio (ex: Argélia e
+  // Líbia, Mali e Níger) tinha os dois nomes escritos um em cima do outro.
+  // Prioridade de espaço: quem nasceria maior na tela primeiro — os que não
+  // cabem do lado de um vizinho já aceito simplesmente não aparecem NESTE
+  // zoom (igual ao declutter dos rótulos de cidade acima), e voltam a
+  // caber sozinhos assim que a pessoa aproximar mais.
+  //
+  // Não depende de `center` de propósito: a posição/tamanho de cada país é
+  // fixa no espaço (não muda com o que está no centro da tela agora), então
+  // o conjunto de rótulos "vencedores" também não deveria mudar só porque
+  // a pessoa arrastou o mapa — arrastar não deveria fazer rótulo
+  // pisca-pisca.
+  const visibleLabelEntries = useMemo(() => {
+    if (!labelEntries || labelEntries.length === 0) return [];
+    const screenPxPerSvgUnit = (mapWidthPx > 0 ? mapWidthPx / 800 : 1216 / 800) * zoom;
+    const screenCapSvg = MAX_LABEL_SCREEN_PX / screenPxPerSvgUnit;
+
+    const sized = labelEntries
+      .map((e) => {
+        const fontSizeSvg = Math.min(e.layout.fontSize, screenCapSvg) * sizeScale;
+        const apparentPx = fontSizeSvg * screenPxPerSvgUnit;
+        return { entry: e, fontSizeSvg, apparentPx };
+      })
+      .filter((s) => s.apparentPx >= MIN_LABEL_SCREEN_PX);
+
+    // Maior primeiro — quem ganharia mais destaque na tela reserva seu
+    // espaço antes dos vizinhos menores/menos importantes.
+    sized.sort((a, b) => b.apparentPx - a.apparentPx);
+
+    const placed: { x: number; y: number; halfW: number; halfH: number }[] = [];
+    const result: { rsmKey: string; layout: CountryLabelLayout; country: Country; fontSizeSvg: number }[] = [];
+    for (const s of sized) {
+      const { layout, country, rsmKey } = s.entry;
+      const name = getPtName(country);
+      // Metade da largura/altura estimada do texto, em unidades do viewBox
+      // (mesmo espaço de layout.x/y) — mesma heurística de countryLabels.ts.
+      const halfW = (name.length * s.fontSizeSvg * APPROX_CHAR_WIDTH_FACTOR) / 2;
+      // 0.75 (não 0.5) de propósito: a altura "de verdade" ocupada por uma
+      // linha de texto é maior que o font-size nominal — acentos (ó, â, ã)
+      // sobem acima da caixa e a fonte em negrito tem descida própria.
+      // Descoberto testando o Báltico (Estônia/Letônia/Lituânia — três
+      // países pequenos e bem próximos): com 0.5 os três "cabiam" pelo
+      // cálculo mas nasciam visualmente grudados um no outro.
+      const halfH = s.fontSizeSvg * 0.75;
+      // Fator > 1 de propósito: exige uma FOLGA entre as caixas, não só
+      // "não tocar" — sem essa margem, países vizinhos com nomes grandes
+      // (ex: Polônia/Bielorrússia) ainda nasciam encostados ou
+      // ligeiramente sobrepostos, já que a estimativa de largura do texto
+      // é uma aproximação, não uma medida exata do glifo renderizado.
+      const collides = placed.some(
+        (p) =>
+          Math.abs(p.x - layout.x) < (p.halfW + halfW) * 1.2 &&
+          Math.abs(p.y - layout.y) < (p.halfH + halfH) * 1.2,
+      );
+      if (collides) continue;
+      placed.push({ x: layout.x, y: layout.y, halfW, halfH });
+      result.push({ rsmKey, layout, country, fontSizeSvg: s.fontSizeSvg });
+    }
+    return result;
+  }, [labelEntries, zoom, mapWidthPx, sizeScale]);
+
   // Todo o conteúdo do SVG (esferas, meridianos, países) fica memoizado à
   // parte: só recalcula quando algo que realmente muda a pintura do mapa
   // muda — não a cada hover ou movimento do mouse.
@@ -647,6 +736,18 @@ function WorldMapInner({
             if (geographies.length && !presentCcn3) {
               const ids = new Set(geographies.map((g) => String(Number(g.id))));
               queueMicrotask(() => setPresentCcn3(ids));
+            }
+            if (geographies.length && !labelEntries) {
+              queueMicrotask(() => {
+                const entries: CountryLabelEntry[] = [];
+                for (const geo of geographies) {
+                  const country = byCcn3.get(String(Number(geo.id)));
+                  if (!country) continue;
+                  const layout = computeCountryLabel(geo.geometry, getPtName(country));
+                  if (layout) entries.push({ rsmKey: geo.rsmKey, layout, country });
+                }
+                setLabelEntries(entries);
+              });
             }
             return geographies.map((geo) => {
               const country = byCcn3.get(String(Number(geo.id)));
@@ -734,6 +835,54 @@ function WorldMapInner({
             });
           }}
         </Geographies>
+
+        {/* Nome do país escrito sobre o próprio território — geometria e
+            tamanho vêm de visibleLabelEntries (já filtrado + decluttered
+            pro zoom atual, ver useMemo acima). clipPaths ficam num <defs> à
+            parte, todos juntos, e são referenciados pelo rsmKey de cada
+            país — ver src/lib/countryLabels.ts pro porquê da geometria
+            (polylabel, rotação, clip). */}
+        {visibleLabelEntries.length > 0 && (
+          <>
+            <defs>
+              {visibleLabelEntries.map((e) => (
+                <clipPath key={`clip-${e.rsmKey}`} id={`label-clip-${e.rsmKey}`}>
+                  <path d={e.layout.clipPath} />
+                </clipPath>
+              ))}
+            </defs>
+            {visibleLabelEntries.map((e) => {
+              const { layout, country, rsmKey, fontSizeSvg } = e;
+              const dimmed = isFiltered(country);
+              return (
+                <g
+                  key={`label-${rsmKey}`}
+                  clipPath={`url(#label-clip-${rsmKey})`}
+                  opacity={dimmed ? 0.28 : 1}
+                  style={{ transition: "opacity 0.2s ease", pointerEvents: "none" }}
+                >
+                  <text
+                    x={layout.x}
+                    y={layout.y}
+                    transform={layout.angle ? `rotate(${layout.angle} ${layout.x} ${layout.y})` : undefined}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fontSize={fontSizeSvg}
+                    fontWeight={700}
+                    letterSpacing={fontSizeSvg * 0.01}
+                    fill="oklch(0.97 0.015 90 / 0.94)"
+                    stroke="oklch(0.09 0.02 260 / 0.55)"
+                    strokeWidth={fontSizeSvg * 0.045}
+                    paintOrder="stroke"
+                    style={{ userSelect: "none" }}
+                  >
+                    {getPtName(country)}
+                  </text>
+                </g>
+              );
+            })}
+          </>
+        )}
 
         {/* Alfinete pulsante no país selecionado */}
         {selectedCountry?.latlng && (
@@ -941,6 +1090,9 @@ function WorldMapInner({
     touchTarget,
     svgUnitsPerScreenPx,
     sizeScale,
+    labelEntries,
+    visibleLabelEntries,
+    mapWidthPx,
   ]);
 
   return (
