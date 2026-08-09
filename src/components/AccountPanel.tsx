@@ -122,6 +122,13 @@ export function AccountPanel({ open, onClose, user }: Props) {
                 </div>
               ) : (
                 <form onSubmit={handleSend} className="flex flex-col gap-3">
+                  {/* Sem autoFocus de propósito: no Safari do iPhone o
+                      teclado sobe JUNTO com a animação do painel subindo,
+                      e a barra de sugestão do QuickType cobre o cartão
+                      inteiro — a pessoa via só o teclado, sem conseguir ler
+                      nada, até fechar o teclado manualmente. Deixando o
+                      foco pra um toque explícito, o painel aparece inteiro
+                      primeiro. */}
                   <p className="text-sm leading-relaxed text-muted-foreground">
                     Faça login pra salvar seu passaporte na nuvem e acessar de qualquer
                     aparelho. Sem senha — só um link no seu e-mail.
@@ -131,7 +138,6 @@ export function AccountPanel({ open, onClose, user }: Props) {
                     <input
                       type="email"
                       required
-                      autoFocus
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="seu@email.com"
