@@ -14,6 +14,9 @@ import { SpeedInsights } from "@vercel/speed-insights/react";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { BASE_URL } from "../lib/site";
+import { detectLocale } from "../lib/i18n/detect-server";
+import { getLocaleInfo } from "../lib/i18n/locales";
+import { I18nProvider } from "../lib/i18n/context";
 
 function NotFoundComponent() {
   return (
@@ -76,6 +79,15 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 }
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
+  // Roda no SERVIDOR antes de qualquer HTML ser enviado — é o que evita o
+  // "flash" de português seguido de troca pro idioma certo (ver comentário
+  // completo em lib/i18n/detect-server.ts). O resultado vira contexto da
+  // rota raiz, lido tanto no RootShell (pra <html lang/dir>) quanto no
+  // RootComponent (pra alimentar o I18nProvider).
+  beforeLoad: async () => {
+    const locale = await detectLocale();
+    return { locale };
+  },
   head: () => ({
     meta: [
       { charSet: "utf-8" },
@@ -143,8 +155,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 });
 
 function RootShell({ children }: { children: ReactNode }) {
+  // `Route.useRouteContext()` já funciona aqui dentro do shellComponent —
+  // ele roda na mesma árvore do RouterProvider, só fora dos providers de
+  // CADA rota filha (ver Match.js do react-router: o shellComponent
+  // envolve o matchContext.Provider da rota raiz, não o contrário).
+  const { locale } = Route.useRouteContext();
+  const { rtl } = getLocaleInfo(locale);
   return (
-    <html lang="pt-BR" className="dark">
+    <html lang={locale} dir={rtl ? "rtl" : "ltr"} className="dark">
       <head>
         <HeadContent />
       </head>
@@ -165,12 +183,14 @@ function RootShell({ children }: { children: ReactNode }) {
 }
 
 function RootComponent() {
-  const { queryClient } = Route.useRouteContext();
+  const { queryClient, locale } = Route.useRouteContext();
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
+      <I18nProvider initialLocale={locale}>
+        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+        <Outlet />
+      </I18nProvider>
     </QueryClientProvider>
   );
 }
