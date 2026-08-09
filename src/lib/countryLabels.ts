@@ -240,3 +240,40 @@ export function computeCountryLabel(
     clipPath: pathGenerator(geometry as never) ?? "",
   };
 }
+
+/** `d` de qualquer geometria, na MESMA projeção usada acima — usado em
+ * WorldMap.tsx pra desenhar a forma "engolida" por outro país (ver
+ * pointInPolygonRing) como um `<Geography>` de verdade, com sua própria
+ * área clicável, em vez do país inteiro em que ela nasceu. */
+export function geometryToPath(geometry: GeoGeometry): string {
+  return pathGenerator(geometry as never) ?? "";
+}
+
+/** Teste ponto-em-polígono (ray casting) sobre coordenadas geográficas
+ * (lng/lat) cruas, sem projeção — usado pra achar território "engolido":
+ * um país da nossa lista (o caso encontrado: Guiana Francesa) sem forma
+ * própria na topologia do mapa porque o próprio dataset desenha a terra
+ * dele como mais uma "ilha" solta dentro do MultiPolygon de OUTRO país
+ * (no caso, a França) — geograficamente faz sentido (é território
+ * daquele país), mas pra quem tá explorando o mapa marcando Guiana
+ * Francesa como visitada/quero-ir, isso fazia aquele pedaço de terra
+ * responder ao hover/clique como se fosse a França, brigando com o
+ * próprio alfinete de Guiana Francesa plantado ali em cima. Ver uso em
+ * WorldMap.tsx — junto com o filtro de plausibilidade por área, que
+ * evita confundir isso com um país pequeno simplesmente ENCRAVADO dentro
+ * do território de outro (Andorra/Mônaco na França, San Marino/Vaticano
+ * na Itália, Singapura na Malásia...): esses continuam do jeito que
+ * sempre estiveram, só um alfinete — não têm um pedaço de terra próprio
+ * e discreto no dataset, só "caem dentro" do contorno gigante do país
+ * hospedeiro. */
+export function pointInPolygonRing(point: [number, number], ring: [number, number][]): boolean {
+  const [x, y] = point;
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    const intersect = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
