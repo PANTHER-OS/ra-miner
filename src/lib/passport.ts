@@ -11,6 +11,12 @@ import { supabase } from "./supabase";
 const KEY = "mef:passport:v1";
 const EVT = "mef:passport-change";
 
+// Convite pra criar conta, disparado uma única vez (nunca mais, mesmo em
+// sessões futuras) quando o passaporte já tem "algo a perder" — ver
+// maybeNudgeCloudSignup() lá embaixo, perto do resto de conta/sync.
+const NUDGE_SEEN_KEY = "mef:passport:cloud-nudge-seen";
+export const CLOUD_NUDGE_EVT = "mef:passport:cloud-nudge";
+
 export type PassportStatus = "visited" | "wishlist" | "none";
 
 /** Carimbo verificado por GPS — gravado só neste aparelho. */
@@ -71,6 +77,7 @@ function write(state: PassportState) {
     /* ignore */
   }
   schedulePush(state);
+  maybeNudgeCloudSignup(state);
 }
 
 
@@ -450,6 +457,27 @@ async function mergeRemoteIntoLocal(userId: string) {
     plans,
   };
   write(merged); // grava local + agenda o envio de volta pra nuvem
+}
+
+// Convite não-intrusivo pra criar conta: só dispara quando a pessoa já
+// marcou pelo menos 3 países (visitou ou quer ir) — ou seja, já investiu
+// algo real que valeria a pena não perder — e só UMA vez por aparelho pra
+// sempre, mesmo que a pessoa ignore. Login continua 100% opcional; isso é
+// só um empurrão no momento certo, não um bloqueio (ver decisão registrada
+// no PR que introduziu isso: manter o app livre pra explorar sem conta é
+// melhor pra quem só quer testar, e pior seria obrigar login antes de
+// mostrar qualquer valor).
+function maybeNudgeCloudSignup(state: PassportState) {
+  if (typeof window === "undefined" || currentUserId) return;
+  try {
+    if (window.localStorage.getItem(NUDGE_SEEN_KEY)) return;
+    const total = state.visited.length + state.wishlist.length;
+    if (total < 3) return;
+    window.localStorage.setItem(NUDGE_SEEN_KEY, "1");
+    window.dispatchEvent(new CustomEvent(CLOUD_NUDGE_EVT));
+  } catch {
+    /* ignore */
+  }
 }
 
 function emitAuthChange() {

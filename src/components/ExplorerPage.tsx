@@ -19,7 +19,7 @@ import { CompareView } from "@/components/CompareView";
 import { WishlistPanel } from "@/components/WishlistPanel";
 import { AccountPanel } from "@/components/AccountPanel";
 import { PassportStats } from "@/components/PassportStats";
-import { usePassport, useAuthUser } from "@/lib/passport";
+import { usePassport, useAuthUser, CLOUD_NUDGE_EVT } from "@/lib/passport";
 import type { PassportStatus } from "@/lib/passport";
 import { findCityBySlug, slugifyCityName, type CityEntry, type CityWithCountry } from "@/lib/cities";
 
@@ -157,6 +157,22 @@ export function ExplorerPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, selectedCity]);
+
+  // Convite pra criar conta — dispara só quando o passaporte já tem
+  // histórico real (ver maybeNudgeCloudSignup em lib/passport.ts) e só uma
+  // vez por aparelho. Login continua opcional; isso é um empurrão no
+  // momento certo, não um bloqueio.
+  useEffect(() => {
+    function handleNudge() {
+      toast("Seu passaporte já tem histórico ✈️", {
+        description: "Crie uma conta grátis — só e-mail, sem senha — pra nunca perder seus dados e acessar de qualquer aparelho.",
+        action: { label: "Fazer login", onClick: () => setAccountOpen(true) },
+        duration: 10_000,
+      });
+    }
+    window.addEventListener(CLOUD_NUDGE_EVT, handleNudge);
+    return () => window.removeEventListener(CLOUD_NUDGE_EVT, handleNudge);
+  }, []);
 
   // Referência estável: evita que o mapa (memoizado) perca o memo e
   // reconstrua tudo sempre que a Home re-renderiza por um motivo que não
