@@ -222,6 +222,16 @@ export const QUESTIONS: QuizQuestion[] = [
     ],
   },
   {
+    id: "altitude",
+    prompt: "E quanto à altitude/montanha?",
+    choices: [
+      { label: "Amo trilha, quanto mais alto melhor", emoji: "⛰️", weights: { mountain: 5, adventure: 2 } },
+      { label: "Gosto de ver de longe, sem precisar subir", emoji: "🔭", weights: { mountain: 2 } },
+      { label: "Prefiro chão plano e mar", emoji: "🏖️", weights: { mountain: -4, beach: 2 } },
+      { label: "Tanto faz", emoji: "🤷", weights: {} },
+    ],
+  },
+  {
     id: "budget",
     prompt: "Como está o bolso?",
     choices: [
@@ -232,12 +242,32 @@ export const QUESTIONS: QuizQuestion[] = [
     ],
   },
   {
+    id: "tradeoffBeachBudget",
+    prompt: "Se tivesse que escolher: praia incrível e cara, ou custo-benefício sem praia?",
+    choices: [
+      { label: "Praia, sem pensar duas vezes", emoji: "🏝️", weights: { beach: 5, budget: -3 } },
+      { label: "Custo-benefício sempre vence", emoji: "🧮", weights: { budget: 5, beach: -3 } },
+      { label: "Prefiro praia, mas sem exagerar no gasto", emoji: "😌", weights: { beach: 2, budget: 1 } },
+      { label: "Nenhum dos dois pesa muito pra mim", emoji: "🤷", weights: {} },
+    ],
+  },
+  {
     id: "pace",
     prompt: "Ritmo da viagem?",
     choices: [
       { label: "Lento — quero sentir o lugar", emoji: "🐢", weights: { chill: 5 } },
       { label: "Equilibrado — passeio + descanso", emoji: "⚖️", weights: { chill: 2, culture: 1 } },
       { label: "Intenso — quero ver tudo", emoji: "⚡", weights: { adventure: 3, urban: 2, culture: 2 } },
+    ],
+  },
+  {
+    id: "tradeoffCultureClimate",
+    prompt: "E entre cultura riquíssima com frio, ou clima perfeito com menos história?",
+    choices: [
+      { label: "Cultura vence, aguento o frio", emoji: "🏛️", weights: { culture: 5, warm: -3 } },
+      { label: "Clima é inegociável pra mim", emoji: "☀️", weights: { warm: 5, culture: -3 } },
+      { label: "Prefiro cultura, mas clima ameno ajuda", emoji: "🙂", weights: { culture: 3, warm: 1 } },
+      { label: "Não ligo muito pra nenhum dos dois", emoji: "🤷", weights: {} },
     ],
   },
   {
@@ -251,6 +281,16 @@ export const QUESTIONS: QuizQuestion[] = [
     ],
   },
   {
+    id: "adrenaline",
+    prompt: "O quanto de adrenalina você quer na viagem?",
+    choices: [
+      { label: "Só topo se for de verdade — radical", emoji: "🪂", weights: { adventure: 5, chill: -3 } },
+      { label: "Uma aventura leve, sem exagero", emoji: "🚶", weights: { adventure: 2 } },
+      { label: "Zero radicalismo, só quero relaxar", emoji: "🧘", weights: { chill: 5, adventure: -4 } },
+      { label: "Depende do dia", emoji: "🤷", weights: {} },
+    ],
+  },
+  {
     id: "company",
     prompt: "Com quem você viaja?",
     choices: [
@@ -260,16 +300,49 @@ export const QUESTIONS: QuizQuestion[] = [
       { label: "Em família, com crianças", emoji: "👨‍👩‍👧", weights: { easy: 4, chill: 2, adventure: -2 } },
     ],
   },
+  {
+    id: "urbanNature",
+    prompt: "No fim das contas, seu tipo de destino é...",
+    choices: [
+      { label: "Cidade grande, sempre", emoji: "🌆", weights: { urban: 5, mountain: -2, beach: -1 } },
+      { label: "Natureza, longe de tudo", emoji: "🌲", weights: { mountain: 3, beach: 2, urban: -4 } },
+      { label: "Uma cidade pequena e charmosa", emoji: "🏘️", weights: { urban: 1, chill: 2 } },
+      { label: "As duas coisas na mesma viagem", emoji: "✨", weights: {} },
+    ],
+  },
 ];
 
 // ------------- Cálculo -------------
 
 export type Answers = Record<string, number>; // questionId -> choice index
 
+// Rótulo em PT de cada dimensão — usado pra explicar "por que bateu" no
+// resultado (ver topDimensions abaixo). Sem isso, o match parecia uma
+// caixa-preta ("94%" sem contexto nenhum); mostrar em QUAIS dimensões o
+// país realmente bateu com a resposta da pessoa deixa o resultado mais
+// crível e mais fácil de confiar.
+export const DIMENSION_LABELS: Record<Dimension, string> = {
+  beach: "praia",
+  mountain: "montanha",
+  urban: "vida urbana",
+  culture: "cultura",
+  food: "gastronomia",
+  adventure: "aventura",
+  chill: "relaxamento",
+  budget: "custo-benefício",
+  warm: "clima quente",
+  easy: "facilidade de ir",
+  exotic: "choque cultural",
+};
+
 export interface QuizResult {
   profile: CountryProfile;
   score: number;   // 0-100 normalizado
   matchPct: number;
+  // Até 3 dimensões que mais empurraram esse país pro topo — só as que
+  // realmente contribuíram positivamente (ver cálculo abaixo), não
+  // qualquer dimensão que o país tenha nota alta.
+  topDimensions: Dimension[];
 }
 
 export function computeResults(answers: Answers, countries: Country[] = []): QuizResult[] {
@@ -321,14 +394,32 @@ export function computeResults(answers: Answers, countries: Country[] = []): Qui
     const countryVec = dims.map((d) => ((p.scores as Record<string, number>)[d] ?? 5) - 5);
     const countryNorm = Math.sqrt(countryVec.reduce((s, v) => s + v * v, 0)) || 1;
 
+    // Contribuição de cada dimensão pro produto escalar — a mesma soma que
+    // vira o cosseno, só que guardada por dimensão em vez de já somada.
+    // Isso é o que permite apontar EXATAMENTE quais dimensões fizeram esse
+    // país subir no ranking, não só o resultado final.
     let dot = 0;
+    const contributions: { dim: string; value: number }[] = [];
     dims.forEach((d, i) => {
-      dot += userWeights[d] * countryVec[i];
+      const contribution = userWeights[d] * countryVec[i];
+      dot += contribution;
+      contributions.push({ dim: d, value: contribution });
     });
+
+    const topDimensions = contributions
+      .filter((c) => c.value > 0)
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 3)
+      .map((c) => c.dim as Dimension);
 
     const cosine = dims.length ? dot / (userNorm * countryNorm) : 0; // -1..1
     const matchPct = Math.round(((cosine + 1) / 2) * 100);
-    return { profile: p, score: cosine, matchPct: Math.max(0, Math.min(100, matchPct)) };
+    return {
+      profile: p,
+      score: cosine,
+      matchPct: Math.max(0, Math.min(100, matchPct)),
+      topDimensions,
+    };
   });
 
   scored.sort((a, b) => b.score - a.score);

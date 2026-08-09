@@ -10,8 +10,8 @@
 // (ex: "nota de comida 8" pro Turcomenistão não tem nenhuma base).
 //
 // Em vez disso, esse script calcula só as dimensões que dá pra derivar de
-// dado geográfico JÁ verificado (mledoze/countries: latlng, landlocked,
-// population, area, languages) — sem inventar nada:
+// dado geográfico/econômico JÁ verificado (mledoze/countries, Banco
+// Mundial, CIA World Factbook via dataset aberto) — sem inventar nada:
 //   - beach: 0 se landlocked (fato, não chute); senão cresce com o quanto o
 //     país é tropical (mais perto do equador).
 //   - warm: direto da latitude (mais perto do equador = mais quente).
@@ -20,11 +20,21 @@
 //     pesam mais que inglês) menos a distância até o Brasil.
 //   - exotic: puramente a distância até o Brasil — quanto mais longe,
 //     mais raro de um brasileiro conhecer alguém que já foi.
+//   - budget: PIB per capita (Banco Mundial, dado econômico oficial) em
+//     escala log invertida — país mais rico tende a ser mais caro pra
+//     visitar, não é perfeito mas é o proxy honesto mais direto que existe
+//     sem precisar de dado de preço turístico de verdade (que não é aberto).
+//   - mountain: altitude MÉDIA do país (CIA World Factbook, via dataset
+//     aberto) — Butão/Nepal no topo, Holanda/Dinamarca no fim bate com
+//     geografia real, então serve como proxy honesto de "quão montanhoso".
 //
-// As outras 6 dimensões (mountain, culture, food, adventure, chill, budget)
-// ficam DE FORA do objeto de cada país — computeResults() já trata
-// dimensão ausente como neutra (nem ajuda nem atrapalha o match), então é
-// mais honesto deixar de fora do que inventar um número.
+// As outras 4 dimensões (culture, food, adventure, chill) ficam DE FORA do
+// objeto de cada país — não existe fonte pública confiável pra elas sem
+// vir de curadoria manual (culture quase virou proxy via nº de sítios da
+// UNESCO, mas não achei dataset aberto confiável — melhor deixar de fora
+// do que usar fonte duvidosa). computeResults() já trata dimensão ausente
+// como neutra (nem ajuda nem atrapalha o match), então é mais honesto
+// deixar de fora do que inventar um número.
 //
 // Rodar: node scripts/gen-quiz-profiles.mjs
 import { writeFileSync } from "fs";
@@ -38,6 +48,12 @@ const MLEDOZE_URL = "https://raw.githubusercontent.com/mledoze/countries/master/
 // valor pra todo mundo, porque c.population vinha sempre undefined.
 const POP_URL =
   "https://raw.githubusercontent.com/samayo/country-json/master/src/country-by-population.json";
+// API pública do Banco Mundial — sem chave, sem cadastro. PIB per capita
+// (US$ correntes), ano mais recente disponível por país.
+const GDP_URL =
+  "https://api.worldbank.org/v2/country/all/indicator/NY.GDP.PCAP.CD?format=json&per_page=20000&mrnev=1";
+const ELEVATION_URL =
+  "https://raw.githubusercontent.com/samayo/country-json/master/src/country-by-elevation.json";
 const outPath = join(__dirname, "..", "src", "data", "quiz-auto-profiles.json");
 
 function norm(s) {
@@ -75,19 +91,56 @@ function haversineKm([lat1, lng1], [lat2, lng2]) {
   return R * 2 * Math.asin(Math.sqrt(a));
 }
 
+// PIB per capita observado varia de ~US$200 a ~US$130.000 — mapeia esse
+// intervalo (em escala log, porque renda segue distribuição log-normal)
+// pra 10 (bem barato) .. 0 (bem caro), em vez de uma escala linear que
+// deixaria quase todo mundo espremido perto de um dos extremos.
+const GDP_LOG_MIN = Math.log10(200);
+const GDP_LOG_MAX = Math.log10(130_000);
+
+function budgetFromGdp(gdpPerCapita) {
+  const frac = clamp(
+    (Math.log10(Math.max(gdpPerCapita, 1)) - GDP_LOG_MIN) / (GDP_LOG_MAX - GDP_LOG_MIN),
+    0,
+    1,
+  );
+  return Math.round(10 - 10 * frac);
+}
+
+// Altitude média observada vai de ~0 (países costeiros/planos) a ~3300m
+// (Butão) — mapeamento direto e linear é suficiente aqui, a distribuição
+// não é tão distorcida quanto a de renda.
+function mountainFromElevation(meanElevationM) {
+  return clamp(Math.round(meanElevationM / 330), 0, 10);
+}
+
 async function main() {
-  const [countries, pops] = await Promise.all([
+  const [countries, pops, gdpRows, elevations] = await Promise.all([
     fetch(MLEDOZE_URL).then((r) => r.json()),
     fetch(POP_URL).then((r) => r.json()),
+    fetch(GDP_URL)
+      .then((r) => r.json())
+      .then((d) => d[1] ?? []),
+    fetch(ELEVATION_URL).then((r) => r.json()),
   ]);
   const popMap = new Map();
   for (const p of pops) {
     if (p.population != null) popMap.set(norm(p.country), p.population);
   }
+  const gdpMap = new Map();
+  for (const row of gdpRows) {
+    if (row.value != null && row.countryiso3code) gdpMap.set(row.countryiso3code, row.value);
+  }
+  const elevationMap = new Map();
+  for (const e of elevations) {
+    if (e.elevation != null) elevationMap.set(norm(e.country), e.elevation);
+  }
 
   const result = {};
   let generated = 0;
   const skippedNoCoord = [];
+  let withBudget = 0;
+  let withMountain = 0;
 
   for (const c of countries) {
     const cca2 = c.cca2;
@@ -118,12 +171,27 @@ async function main() {
 
     const exotic = clamp(Math.round(distKm / 2200), 0, 10);
 
-    result[cca2] = { beach, warm, urban, easy, exotic };
+    const profile = { beach, warm, urban, easy, exotic };
+
+    const gdp = gdpMap.get(c.cca3);
+    if (gdp != null) {
+      profile.budget = budgetFromGdp(gdp);
+      withBudget++;
+    }
+    const elevation = elevationMap.get(norm(c.name.common)) ?? elevationMap.get(norm(c.name.official));
+    if (elevation != null) {
+      profile.mountain = mountainFromElevation(elevation);
+      withMountain++;
+    }
+
+    result[cca2] = profile;
     generated++;
   }
 
   writeFileSync(outPath, JSON.stringify(result, null, 0));
   console.log(`gerado: ${generated} países -> ${outPath}`);
+  console.log(`  com budget (PIB per capita): ${withBudget}`);
+  console.log(`  com mountain (altitude média): ${withMountain}`);
   console.log(`  sem coordenada (não gerados): ${skippedNoCoord.length}${skippedNoCoord.length ? " -> " + skippedNoCoord.join(", ") : ""}`);
 }
 

@@ -10,12 +10,14 @@ import {
   Sparkles,
   Check,
   Crown,
+  Target,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   QUESTIONS,
   computeResults,
   buildShareText,
+  DIMENSION_LABELS,
   type Answers,
   type QuizResult,
 } from "@/lib/quiz";
@@ -425,6 +427,15 @@ export function TravelQuiz({ open, onClose, countries, onOpenCountry }: Props) {
                             <p className="mt-1 text-sm leading-snug text-muted-foreground">
                               {r.profile.tagline}
                             </p>
+                            {r.topDimensions.length > 0 && (
+                              <p className="mt-1.5 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground/80">
+                                <Target className="h-3 w-3 shrink-0 text-primary/70" />
+                                Bateu em:{" "}
+                                {r.topDimensions
+                                  .map((d) => DIMENSION_LABELS[d])
+                                  .join(", ")}
+                              </p>
+                            )}
                             <span className="mt-1 inline-block text-[11px] text-primary/80 opacity-0 transition group-hover:opacity-100">
                               Ver perfil completo →
                             </span>
