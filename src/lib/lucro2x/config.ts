@@ -27,9 +27,9 @@ export const programInfo = {
 
 export const pricing = {
   fullPriceCents: 99990, // R$ 999,90 — preço definitivo, à vista, só via Pix
-  // Preço de referência anterior, se existir (pra ancoragem). Deixe `null`
-  // enquanto não houver preço oficial anterior confirmado.
-  anchorPriceCents: null as number | null,
+  // Preço de referência pra ancoragem (valor de mercado / preço cheio do
+  // programa fora dessa condição de lançamento).
+  anchorPriceCents: 299700 as number | null, // R$ 2.997,00
 };
 
 export const offerWindow = {

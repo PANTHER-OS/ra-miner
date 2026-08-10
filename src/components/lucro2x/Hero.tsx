@@ -54,9 +54,14 @@ export function Hero() {
             className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center"
           >
             <CtaButton location="hero">Quero conhecer o programa</CtaButton>
-            <div className="text-sm text-muted-foreground">
-              Condição de lançamento
-              <span className="ml-1.5 font-semibold text-foreground">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+              <span>Condição de lançamento</span>
+              {pricing.anchorPriceCents != null && (
+                <span className="line-through decoration-2 opacity-70">
+                  {formatBRL(pricing.anchorPriceCents)}
+                </span>
+              )}
+              <span className="font-semibold text-foreground">
                 {formatBRL(pricing.fullPriceCents)}
               </span>
             </div>

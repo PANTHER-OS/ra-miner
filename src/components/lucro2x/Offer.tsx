@@ -1,6 +1,6 @@
 import { Check, ShieldCheck, Zap } from "lucide-react";
 import { guarantee, offerWindow, pricing, programInfo } from "@/lib/lucro2x/config";
-import { formatBRL } from "@/lib/lucro2x/format";
+import { discountPercent, formatBRL } from "@/lib/lucro2x/format";
 import { CtaButton } from "./CtaButton";
 import { Countdown } from "./Countdown";
 import { Section, Eyebrow } from "./Section";
@@ -58,7 +58,17 @@ export function Offer() {
           </p>
 
           <div className="mt-4 flex flex-col items-center">
-            <span className="font-display text-5xl font-semibold tracking-tight text-foreground sm:text-6xl">
+            {pricing.anchorPriceCents != null && (
+              <div className="flex items-center gap-2">
+                <span className="text-lg text-muted-foreground line-through decoration-2">
+                  {formatBRL(pricing.anchorPriceCents)}
+                </span>
+                <span className="rounded-full bg-primary/15 px-2.5 py-0.5 text-xs font-bold text-primary">
+                  -{discountPercent(pricing.anchorPriceCents, pricing.fullPriceCents)}%
+                </span>
+              </div>
+            )}
+            <span className="mt-1 font-display text-5xl font-semibold tracking-tight text-foreground sm:text-6xl">
               {formatBRL(pricing.fullPriceCents)}
             </span>
             <span className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground">

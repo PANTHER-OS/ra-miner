@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { pricing } from "@/lib/lucro2x/config";
-import { formatBRL } from "@/lib/lucro2x/format";
+import { discountPercent, formatBRL } from "@/lib/lucro2x/format";
 import { CtaButton } from "./CtaButton";
 
 // Barra fixa no rodapé, só em telas pequenas — a maior parte do tráfego
@@ -17,9 +17,16 @@ export function StickyCta() {
       <div className="flex items-center justify-between gap-3">
         <div className="leading-tight">
           <p className="text-[11px] text-muted-foreground">Condição de lançamento</p>
-          <p className="text-sm font-semibold text-foreground">
-            {formatBRL(pricing.fullPriceCents)}
-          </p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-sm font-semibold text-foreground">
+              {formatBRL(pricing.fullPriceCents)}
+            </p>
+            {pricing.anchorPriceCents != null && (
+              <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-bold text-primary">
+                -{discountPercent(pricing.anchorPriceCents, pricing.fullPriceCents)}%
+              </span>
+            )}
+          </div>
         </div>
         <CtaButton location="sticky_mobile" size="default" className="px-5 py-3 text-sm">
           Entrar agora

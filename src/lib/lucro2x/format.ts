@@ -14,3 +14,10 @@ export function formatBRLNoSymbol(cents: number): string {
     maximumFractionDigits: 2,
   });
 }
+
+// Percentual de desconto entre o preço de ancoragem e o preço atual,
+// arredondado pra inteiro (é assim que desconto costuma ser comunicado —
+// "-67%", não "-66,63%"). Só faz sentido chamar quando anchorCents existe.
+export function discountPercent(anchorCents: number, priceCents: number): number {
+  return Math.round(100 - (priceCents / anchorCents) * 100);
+}
