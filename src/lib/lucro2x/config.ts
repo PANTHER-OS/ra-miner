@@ -26,7 +26,7 @@ export const programInfo = {
 };
 
 export const pricing = {
-  fullPriceCents: 35990, // R$ 359,90 — preço definitivo, à vista, só via Pix
+  fullPriceCents: 99990, // R$ 999,90 — preço definitivo, à vista, só via Pix
   // Preço de referência anterior, se existir (pra ancoragem). Deixe `null`
   // enquanto não houver preço oficial anterior confirmado.
   anchorPriceCents: null as number | null,
