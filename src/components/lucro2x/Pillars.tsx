@@ -11,37 +11,22 @@ export function Pillars() {
         </h2>
       </div>
 
-      <div className="mt-12 grid gap-5 sm:grid-cols-2">
+      <div className="mt-10 grid gap-5 sm:grid-cols-2">
         {pillars.map((pillar) => (
-          <div
-            key={pillar.number}
-            className="hover-lift surface-card flex flex-col gap-4 rounded-2xl p-6 sm:p-7"
-          >
+          <div key={pillar.number} className="hover-lift surface-card rounded-2xl p-6">
             <div className="flex items-baseline gap-3">
-              <span className="font-display text-3xl font-semibold text-primary/70">
+              <span className="font-display text-2xl font-semibold text-primary/70">
                 {pillar.number}
               </span>
-              <h3 className="font-display text-xl font-semibold text-foreground">{pillar.name}</h3>
+              <h3 className="font-display text-lg font-semibold text-foreground">{pillar.name}</h3>
             </div>
 
-            <dl className="space-y-3 text-sm leading-relaxed">
-              <div>
-                <dt className="font-medium text-foreground/80">O problema</dt>
-                <dd className="mt-1 text-muted-foreground">{pillar.problem}</dd>
-              </div>
-              <div>
-                <dt className="font-medium text-foreground/80">O princípio</dt>
-                <dd className="mt-1 text-muted-foreground">{pillar.principle}</dd>
-              </div>
-              <div>
-                <dt className="font-medium text-foreground/80">O que será trabalhado</dt>
-                <dd className="mt-1 text-muted-foreground/70 italic">{pillar.whatIsWorked}</dd>
-              </div>
-              <div>
-                <dt className="font-medium text-foreground/80">O benefício prático</dt>
-                <dd className="mt-1 text-muted-foreground">{pillar.benefit}</dd>
-              </div>
-            </dl>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{pillar.insight}</p>
+
+            <div className="mt-4 border-t border-border/70 pt-4">
+              <p className="text-sm font-medium text-foreground/90">{pillar.delivery}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{pillar.benefit}</p>
+            </div>
           </div>
         ))}
       </div>

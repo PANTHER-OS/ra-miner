@@ -1,52 +1,31 @@
 import { Hero } from "./Hero";
-import { EventContext } from "./EventContext";
-import { Problem } from "./Problem";
-import { Mechanism } from "./Mechanism";
+import { Shift } from "./Shift";
 import { Pillars } from "./Pillars";
-import { MidCta } from "./MidCta";
-import { Profit } from "./Profit";
-import { Wealth } from "./Wealth";
-import { Deliverables } from "./Deliverables";
-import { Bonuses } from "./Bonuses";
-import { Anchor } from "./Anchor";
+import { ProfitWealth } from "./ProfitWealth";
 import { Offer } from "./Offer";
-import { Guarantee } from "./Guarantee";
 import { Faq } from "./Faq";
 import { Objections } from "./Objections";
+import { MidCta } from "./MidCta";
 import { StickyCta } from "./StickyCta";
 import { Footer } from "./Footer";
 
-// Sequência de copy definida no briefing: contexto → problema → nova visão →
-// mecanismo → solução (pilares) → entregáveis → prova → oferta → redução de
-// risco → CTA. Cada seção é isolada e lê o conteúdo editável de
-// src/lib/lucro2x/config.ts — reordenar ou remover uma seção aqui não
-// quebra nenhuma outra.
+// Sequência enxuta: contexto (no hero) → virada de mentalidade → solução
+// (pilares) → lucro/patrimônio → oferta → objeções/FAQ → CTA final. Cada
+// seção lê o conteúdo editável de src/lib/lucro2x/config.ts.
 export function Lucro2xPage() {
   return (
     <div className="min-h-screen">
       <Hero />
-      <EventContext />
-      <Problem />
-      <Mechanism />
+      <Shift />
       <Pillars />
-      <MidCta
-        headline="Pronto para transformar essa visão em execução?"
-        location="mid_pilares"
-        label="Quero entrar"
-      />
-      <Profit />
-      <Wealth />
-      <Deliverables />
-      <Bonuses />
-      <Anchor />
+      <ProfitWealth />
       <Offer />
-      <Guarantee />
-      <Faq />
       <Objections />
+      <Faq />
       <MidCta
-        headline="Transforme lucro em patrimônio, com estrutura."
+        headline="Pronto para transformar lucro em patrimônio, com estrutura?"
         location="final"
-        label="Quero transformar lucro em patrimônio"
+        label="Quero entrar"
       />
       <Footer />
       <StickyCta />

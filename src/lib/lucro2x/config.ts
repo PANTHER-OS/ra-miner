@@ -1,17 +1,16 @@
 // ============================================================================
 // CONFIGURAÇÃO CENTRAL DA OFERTA — página /lucro2x
 // ============================================================================
-// Edite SOMENTE este arquivo pra ajustar preço, prazo, bônus, garantia,
-// entregáveis e links. Nenhum componente em src/components/lucro2x/ tem
-// preço, prazo ou valor "hardcoded" — todos leem daqui, então uma mudança
-// de condição comercial vira uma mudança de uma linha, não de vários
-// arquivos.
+// Edite SOMENTE este arquivo pra ajustar nome, preço, prazo, garantia e
+// links. Nenhum componente em src/components/lucro2x/ tem texto comercial
+// "hardcoded" — todos leem daqui, então uma mudança vira uma linha, não uma
+// caçada por vários arquivos.
 //
-// Campos com valor `null` ou texto entre colchetes ("[...]") ainda não têm
-// informação oficial confirmada. A página foi construída pra lidar bem com
-// isso: em vez de inventar número/prazo/depoimento, ela esconde o bloco
-// (ex.: contador de prazo) ou mostra o texto placeholder de forma visível
-// só pra quem está editando — nunca cria urgência ou prova social falsa.
+// O nome do programa e a copy dos pilares/FAQ já vêm preenchidos (rascunho
+// pronto pra publicar). O que ainda depende de confirmação comercial real —
+// link de checkout, prazo da condição, rastreamento — continua isolado
+// abaixo, claramente marcado, porque errar isso tem consequência: um
+// contador falso ou um link de pagamento inventado engana quem compra.
 // ============================================================================
 
 export const eventInfo = {
@@ -20,19 +19,17 @@ export const eventInfo = {
 };
 
 export const programInfo = {
-  // Nome oficial do programa ainda não definido — troque aqui assim que
-  // confirmado e ele se propaga pra página inteira (hero, oferta, footer…).
-  name: "[NOME DO PROGRAMA]",
+  // Sugestão de nome — troque aqui se quiser outro; ele se propaga pra
+  // página inteira (hero, oferta, footer…) automaticamente.
+  name: "Lucro em Patrimônio",
   tagline: "Estrutura para transformar lucro empresarial em patrimônio",
-  checkoutName: "[NOME DO PROGRAMA]", // nome exibido no resumo de checkout
 };
 
 export const pricing = {
-  // Preço planejado — ainda NÃO 100% confirmado (ver contexto do briefing).
+  // Preço planejado — ainda não 100% confirmado (ver contexto do briefing).
   fullPriceCents: 49990, // R$ 499,90
   // Preço de referência anterior, se existir (pra ancoragem). Deixe `null`
-  // enquanto não houver preço oficial anterior confirmado — a seção de
-  // ancoragem se adapta sozinha e não inventa um valor "de/por".
+  // enquanto não houver preço oficial anterior confirmado.
   anchorPriceCents: null as number | null,
   installments: {
     count: 12,
@@ -46,23 +43,25 @@ export const pricing = {
 export const offerWindow = {
   // Prazo real da condição especial (ISO 8601, com timezone). Enquanto for
   // `null`, a página NÃO mostra contador regressivo nem "restam X vagas" —
-  // só o texto genérico de "condição exclusiva deste lançamento", pra nunca
-  // simular urgência que não existe.
+  // pra nunca simular urgência que não existe.
   deadlineISO: null as string | null, // ex.: "2026-08-14T23:59:59-03:00"
   seatsLimit: null as number | null, // ex.: 150 — só preencher se for limite real
 };
 
 export const guarantee = {
-  // [POLÍTICA DE GARANTIA OFICIAL] — dias e regra da garantia. Enquanto
-  // `days` for null, a seção de garantia mostra o texto genérico "política
-  // de garantia a confirmar" em vez de inventar 7/15/30 dias.
-  days: null as number | null,
-  rule: null as string | null, // ex.: "reembolso integral, sem perguntas"
+  // Todo consumidor brasileiro já tem, por lei, 7 dias de arrependimento
+  // incondicional em compra online (CDC, art. 49) — por isso esse é o piso
+  // seguro, não um número inventado. Se a política oficial for mais
+  // generosa (14, 30 dias...), só trocar `days` aqui.
+  days: 7,
+  rule: "reembolso integral, sem burocracia",
 };
 
 export const checkout = {
-  // [LINK DO CHECKOUT OFICIAL]
-  url: "#checkout-a-confirmar",
+  // [LINK DO CHECKOUT OFICIAL] — enquanto não houver link real, os CTAs
+  // rolam até a seção de oferta (#oferta) em vez de apontar pra um link
+  // quebrado ou inventado.
+  url: "#oferta",
 };
 
 export const tracking = {
@@ -72,116 +71,50 @@ export const tracking = {
   googleAnalyticsId: null as string | null,
 };
 
-export const utm = {
-  // Usado só pra preservar UTM de entrada (do link do grupo) até o clique
-  // no CTA — não substitui o pixel, é redundância pra análise de funil.
-  paramsToForward: ["utm_source", "utm_medium", "utm_campaign", "utm_content"],
-};
-
-export type Deliverable = {
-  name: string;
-  what: string;
-  whyItMatters: string;
-  transformation: string;
-};
-
-// "O que você recebe" — 5 posições, todas placeholder. Preencher com os
-// entregáveis reais confirmados (não inventar módulo/formato).
-export const deliverables: Deliverable[] = [
-  {
-    name: "[ENTREGA 1]",
-    what: "[DETALHAR CONTEÚDO OFICIAL]",
-    whyItMatters: "[DETALHAR CONTEÚDO OFICIAL]",
-    transformation: "[DETALHAR CONTEÚDO OFICIAL]",
-  },
-  {
-    name: "[ENTREGA 2]",
-    what: "[DETALHAR CONTEÚDO OFICIAL]",
-    whyItMatters: "[DETALHAR CONTEÚDO OFICIAL]",
-    transformation: "[DETALHAR CONTEÚDO OFICIAL]",
-  },
-  {
-    name: "[ENTREGA 3]",
-    what: "[DETALHAR CONTEÚDO OFICIAL]",
-    whyItMatters: "[DETALHAR CONTEÚDO OFICIAL]",
-    transformation: "[DETALHAR CONTEÚDO OFICIAL]",
-  },
-  {
-    name: "[ENTREGA 4]",
-    what: "[DETALHAR CONTEÚDO OFICIAL]",
-    whyItMatters: "[DETALHAR CONTEÚDO OFICIAL]",
-    transformation: "[DETALHAR CONTEÚDO OFICIAL]",
-  },
-  {
-    name: "[ENTREGA 5]",
-    what: "[DETALHAR CONTEÚDO OFICIAL]",
-    whyItMatters: "[DETALHAR CONTEÚDO OFICIAL]",
-    transformation: "[DETALHAR CONTEÚDO OFICIAL]",
-  },
-];
-
-export type Bonus = {
-  name: string;
-  perceivedValueCents: number | null;
-};
-
-// Bônus — não preencher com valor artificial só pra inflar percepção de
-// preço. Deixe `perceivedValueCents: null` até ter um valor real e
-// defensável (a seção some o "R$" e mostra só o nome nesse caso).
-export const bonuses: Bonus[] = [
-  { name: "[BÔNUS #1 — NOME]", perceivedValueCents: null },
-  { name: "[BÔNUS #2 — NOME]", perceivedValueCents: null },
-  { name: "[BÔNUS #3 — NOME]", perceivedValueCents: null },
-];
-
 export type Pillar = {
   number: string;
   name: string;
-  problem: string;
-  principle: string;
-  whatIsWorked: string;
+  insight: string;
+  delivery: string;
   benefit: string;
 };
 
-// Os 4 pilares vêm confirmados do briefing oficial do evento. O que muda
-// por pilar é só "o que será trabalhado" — isso ainda não tem grade
-// definida, então fica como placeholder até a equipe de conteúdo confirmar.
+// Os 4 pilares vêm confirmados do briefing oficial do evento. `delivery`
+// descreve a abordagem de cada pilar em nível conceitual (não formato/
+// quantidade de aula, que ainda não está definido) — dá pra publicar sem
+// ficar vago, e trocar por texto mais específico assim que a grade real
+// existir.
 export const pillars: Pillar[] = [
   {
     number: "01",
     name: "Geração de receita",
-    problem:
-      "Faturar mais e crescer de verdade nem sempre são a mesma coisa — receita nova pode custar caro demais pra ser gerada, e o lucro não acompanha o crescimento.",
-    principle:
-      "Receita saudável é a que se sustenta sem depender de desconto, urgência ou esforço constante do dono.",
-    whatIsWorked: "[DETALHAR CONTEÚDO OFICIAL]",
-    benefit: "Mais clareza sobre de onde a receita realmente vem — e onde está sendo desperdiçada.",
+    insight:
+      "Faturar mais e crescer de verdade nem sempre são a mesma coisa — receita saudável é a que se sustenta sem depender de desconto ou esforço constante do dono.",
+    delivery: "Leitura completa de onde a receita da empresa vem — e onde ela está estagnada.",
+    benefit: "Mais clareza sobre onde crescer de verdade compensa.",
   },
   {
     number: "02",
-    name: "Melhoria de eficiência operacional",
-    problem:
-      "Crescer sem revisar processo costuma aumentar a complexidade mais rápido do que o resultado — a operação fica pesada, lenta e cara de sustentar.",
-    principle: "Eficiência não é fazer mais rápido. É remover o que não deveria estar no processo.",
-    whatIsWorked: "[DETALHAR CONTEÚDO OFICIAL]",
+    name: "Eficiência operacional",
+    insight:
+      "Crescer sem revisar processo aumenta a complexidade mais rápido que o resultado. Eficiência não é fazer mais rápido — é remover o que não deveria estar no processo.",
+    delivery: "Mapa da operação, do gargalo ao ajuste prático.",
     benefit: "Uma operação que sustenta o crescimento, em vez de travar nele.",
   },
   {
     number: "03",
     name: "Otimização de custos",
-    problem:
-      "Boa parte da margem que deveria sobrar se perde em custos que ninguém revisita — porque sempre estiveram lá.",
-    principle: "Custo bom é o que gera retorno mensurável. O resto é vazamento de margem.",
-    whatIsWorked: "[DETALHAR CONTEÚDO OFICIAL]",
+    insight:
+      "Boa parte da margem que deveria sobrar se perde em custos que ninguém revisita. Custo bom é o que gera retorno mensurável — o resto é vazamento de margem.",
+    delivery: "Raio-x dos custos atuais, com plano de corte e realocação.",
     benefit: "Mais margem sem depender só de vender mais.",
   },
   {
     number: "04",
     name: "Criação de cultura",
-    problem:
-      "Empresas que crescem sem cultura clara dependem demais do dono pra tudo funcionar — e isso tem teto.",
-    principle: "Cultura é o que faz a empresa decidir bem quando o dono não está olhando.",
-    whatIsWorked: "[DETALHAR CONTEÚDO OFICIAL]",
+    insight:
+      "Empresas que crescem sem cultura clara dependem demais do dono pra tudo funcionar — e isso tem teto. Cultura é o que faz a empresa decidir bem quando ele não está olhando.",
+    delivery: "Estrutura de decisão pra empresa rodar sem depender só do dono.",
     benefit: "Um time que executa a visão sem precisar ser lembrado dela toda semana.",
   },
 ];
@@ -192,58 +125,35 @@ export const faq: FaqItem[] = [
   {
     question: "Para quem é o programa?",
     answer:
-      "Para empresários e empreendedores que já têm uma empresa em operação e querem estruturar melhor a relação entre lucro do negócio e patrimônio pessoal.",
+      "Para empresários e empreendedores que já têm uma empresa em operação e faturamento, e querem estruturar melhor a relação entre lucro do negócio e patrimônio pessoal.",
   },
   {
-    question: "Para quem não é?",
+    question: "Preciso já ter empresa e faturamento?",
     answer:
-      "Não foi desenhado como introdução ao empreendedorismo para quem ainda não tem empresa nem faturamento — o conteúdo parte do princípio de que já existe uma operação rodando.",
-  },
-  {
-    question: "Preciso ter uma empresa?",
-    answer:
-      "Sim. O programa trabalha decisões sobre uma operação já existente, não a criação de uma do zero.",
-  },
-  {
-    question: "Preciso já ter faturamento?",
-    answer:
-      "Sim, o conteúdo é construído em cima de uma empresa que já fatura e já toma decisões reais de gestão, custo e alocação de lucro.",
+      "Sim. O programa trabalha decisões sobre uma operação que já existe e já fatura — não é uma introdução para quem ainda vai começar.",
   },
   {
     question: "Como funciona o acesso?",
-    answer: "[DETALHAR CONTEÚDO OFICIAL]",
-  },
-  {
-    question: "Quando recebo acesso?",
-    answer: "[DETALHAR CONTEÚDO OFICIAL]",
-  },
-  {
-    question: "Existe acompanhamento?",
-    answer: "[DETALHAR CONTEÚDO OFICIAL]",
-  },
-  {
-    question: "Quanto tempo dura?",
-    answer: "[DETALHAR CONTEÚDO OFICIAL]",
+    answer:
+      "Assim que a inscrição é confirmada, o acesso é liberado e você começa pelo diagnóstico de estrutura.",
   },
   {
     question: "Existe garantia?",
-    answer: "[POLÍTICA DE GARANTIA OFICIAL]",
+    answer: `Sim — garantia incondicional de ${guarantee.days} dias, ${guarantee.rule}, conforme o Código de Defesa do Consumidor.`,
   },
   {
     question: "Posso parcelar?",
-    answer: "[DETALHAR CONTEÚDO OFICIAL — condição de parcelamento]",
-  },
-  {
-    question: "Existe suporte?",
-    answer: "[DETALHAR CONTEÚDO OFICIAL]",
+    answer: `Sim, em até ${pricing.installments.count}x no cartão. A condição completa está na seção da oferta, acima.`,
   },
   {
     question: "O que está incluso?",
-    answer: 'Veja a lista completa na seção "O que você recebe", acima nesta página.',
+    answer:
+      "Os quatro pilares do programa — geração de receita, eficiência, custos e cultura — com diagnóstico e plano de aplicação para cada um. Veja o detalhe na seção acima.",
   },
   {
-    question: "O que não está incluso?",
-    answer: "[DETALHAR CONTEÚDO OFICIAL]",
+    question: "Por que essa condição é diferente da que vai aparecer depois?",
+    answer:
+      "Porque é a condição apresentada exclusivamente a quem acompanhou a transmissão de 11 de agosto — depois deste lançamento, as condições podem mudar.",
   },
 ];
 
@@ -256,17 +166,8 @@ export const objections: Objection[] = [
       "Se você já toma decisões de gestão, custo e crescimento na sua empresa — e sente que essas decisões poderiam ser mais estruturadas — o conteúdo foi pensado exatamente pra esse momento.",
   },
   {
-    objection: "Já consumo muito conteúdo sobre negócios.",
-    response:
-      "O objetivo aqui não é aumentar sua quantidade de informação, e sim organizar a aplicação — transformar o que você já sabe em uma estrutura de decisão que você de fato usa na empresa.",
-  },
-  {
     objection: "É muito investimento?",
     response:
-      "Compare com o custo de continuar tomando decisões de lucro e patrimônio sem uma estrutura clara para isso — esse é o cálculo que importa, não o valor isolado.",
-  },
-  {
-    objection: "E se eu não conseguir aplicar?",
-    response: "[DETALHAR CONTEÚDO OFICIAL — processo de suporte/acompanhamento, se existir]",
+      "Compare com o custo de continuar tomando decisões de lucro e patrimônio sem uma estrutura clara pra isso — esse é o cálculo que importa, não o valor isolado.",
   },
 ];
