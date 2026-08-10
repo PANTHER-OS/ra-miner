@@ -3,7 +3,6 @@ import { programInfo, pricing } from "@/lib/lucro2x/config";
 import { formatBRL } from "@/lib/lucro2x/format";
 import { CtaButton } from "./CtaButton";
 import { Countdown } from "./Countdown";
-import { EarlyAccessBadge } from "./EarlyAccessBadge";
 import { HeroVisual } from "./HeroVisual";
 
 const container: Variants = {
@@ -27,13 +26,9 @@ export function Hero() {
 
       <div className="mx-auto grid w-full max-w-4xl items-center gap-10 px-5 pb-14 sm:px-8 sm:pb-20 lg:grid-cols-[1.1fr_0.9fr] lg:gap-14">
         <motion.div variants={container} initial="hidden" animate="show">
-          <motion.div variants={item}>
-            <EarlyAccessBadge />
-          </motion.div>
-
           <motion.p
             variants={item}
-            className="mt-5 text-sm font-semibold uppercase tracking-[0.2em] text-primary"
+            className="text-sm font-semibold uppercase tracking-[0.2em] text-primary"
           >
             {programInfo.name}
           </motion.p>

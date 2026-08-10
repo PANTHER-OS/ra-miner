@@ -1,4 +1,5 @@
 import { CheckoutModalProvider } from "@/lib/lucro2x/checkout-modal-context";
+import { AnnouncementMarquee } from "./AnnouncementMarquee";
 import { Hero } from "./Hero";
 import { Shift } from "./Shift";
 import { Pillars } from "./Pillars";
@@ -20,6 +21,7 @@ export function Lucro2xPage() {
   return (
     <CheckoutModalProvider>
       <div className="min-h-screen">
+        <AnnouncementMarquee />
         <Hero />
         <Shift />
         <Pillars />
