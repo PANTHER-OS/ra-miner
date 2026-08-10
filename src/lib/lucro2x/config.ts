@@ -157,6 +157,6 @@ export const faq: FaqItem[] = [
   {
     question: "Por que essa condição é diferente da que vai aparecer depois?",
     answer:
-      "Porque é a condição apresentada exclusivamente a quem acompanhou a transmissão de 11 de agosto — depois deste lançamento, as condições podem mudar.",
+      "Porque essa é uma pré-venda antecipada — liberada hoje, antes da transmissão oficial do dia 11. É o valor mais baixo que essa oferta vai ter: a partir do dia 11, quando ela for apresentada oficialmente, o preço sobe.",
   },
 ];

@@ -19,6 +19,18 @@ type FormState = { fullName: string; cpf: string; email: string; phone: string }
 
 const initialForm: FormState = { fullName: "", cpf: "", email: "", phone: "" };
 
+// No iOS, a barra de sugestão do teclado (QuickType) some por cima do
+// campo se a página/modal não rolar o campo pra cima dela — o navegador
+// só garante isso sozinho quando não há um scroll container aninhado
+// (que é exatamente o caso aqui, dentro do modal). Rola manualmente
+// depois que o teclado termina de abrir.
+function scrollFieldIntoView(e: React.FocusEvent<HTMLInputElement>) {
+  const el = e.currentTarget;
+  setTimeout(() => {
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, 300);
+}
+
 function fieldErrors(form: FormState) {
   const errors: Partial<Record<keyof FormState, string>> = {};
   if (form.fullName.trim().split(/\s+/).filter(Boolean).length < 2) {
@@ -109,6 +121,7 @@ export function CheckoutForm() {
                 value={form.fullName}
                 onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
                 onBlur={() => setTouched((t) => ({ ...t, fullName: true }))}
+                onFocus={scrollFieldIntoView}
                 placeholder="Seu nome completo"
               />
             </Field>
@@ -120,6 +133,7 @@ export function CheckoutForm() {
                 value={formatCPF(form.cpf)}
                 onChange={(e) => setForm((f) => ({ ...f, cpf: e.target.value }))}
                 onBlur={() => setTouched((t) => ({ ...t, cpf: true }))}
+                onFocus={scrollFieldIntoView}
                 placeholder="000.000.000-00"
               />
             </Field>
@@ -131,6 +145,7 @@ export function CheckoutForm() {
                 value={form.email}
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
                 onBlur={() => setTouched((t) => ({ ...t, email: true }))}
+                onFocus={scrollFieldIntoView}
                 placeholder="voce@email.com"
               />
             </Field>
@@ -142,6 +157,7 @@ export function CheckoutForm() {
                 value={formatPhone(form.phone)}
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
                 onBlur={() => setTouched((t) => ({ ...t, phone: true }))}
+                onFocus={scrollFieldIntoView}
                 placeholder="(11) 91234-5678"
               />
             </Field>

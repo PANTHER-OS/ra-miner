@@ -21,10 +21,10 @@ const stages = [
 
 export function HeroVisual() {
   const innerW = 320; // largura ocupada pelas barras em si
-  const hPad = 26; // margem de segurança nas duas pontas, só pro texto do rótulo nunca cortar
+  const hPad = 30; // margem de segurança nas duas pontas, só pro texto do rótulo nunca cortar
   const chartW = innerW + hPad * 2;
-  const chartH = 190;
-  const topMargin = 30; // espaço reservado acima da barra mais alta pro rótulo + linha
+  const chartH = 196;
+  const topMargin = 36; // espaço reservado acima da barra mais alta pro rótulo + linha
   const gap = 10;
   const barW = (innerW - gap * (stages.length - 1)) / stages.length;
   const max = Math.max(...stages.map((s) => s.value));
@@ -134,7 +134,7 @@ export function HeroVisual() {
                   x={x + barW / 2}
                   y={y - 8}
                   textAnchor="middle"
-                  fontSize={9}
+                  fontSize={10}
                   fontWeight={isLast ? 700 : 500}
                   // Última barra: branco (não dourado) — dourado em cima do
                   // brilho dourado ficava ilegível. Assim fica de alto
