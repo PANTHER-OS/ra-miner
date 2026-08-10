@@ -26,17 +26,10 @@ export const programInfo = {
 };
 
 export const pricing = {
-  fullPriceCents: 35990, // R$ 359,90 — preço definitivo
+  fullPriceCents: 35990, // R$ 359,90 — preço definitivo, à vista, só via Pix
   // Preço de referência anterior, se existir (pra ancoragem). Deixe `null`
   // enquanto não houver preço oficial anterior confirmado.
   anchorPriceCents: null as number | null,
-  installments: {
-    count: 12,
-    // Se `null`, o valor da parcela é calculado automaticamente
-    // (preço cheio ÷ count). Defina um valor fixo aqui se a condição real
-    // tiver juro/taxa de parcelamento diferente da divisão simples.
-    valueCentsOverride: null as number | null,
-  },
 };
 
 export const offerWindow = {
@@ -110,6 +103,30 @@ export const pillars: Pillar[] = [
   },
 ];
 
+export type Bonus = { name: string; description: string };
+
+// Escolhidos pra reforçar o próprio produto, não pra parecer brinde
+// solto: a planilha e o checklist usam o mesmo framework (os 4 pilares /
+// a cadeia Receita→Patrimônio) que já é o argumento central da página.
+export const bonuses: Bonus[] = [
+  {
+    name: "Planilha de Alocação de Lucro",
+    description: "Aplique a cadeia Receita → Patrimônio direto nos números da sua empresa.",
+  },
+  {
+    name: "Checklist de Diagnóstico de Estrutura",
+    description: "Descubra em 15 minutos onde a empresa está mais frágil, entre os 4 pilares.",
+  },
+  {
+    name: "Sessão de Diagnóstico ao Vivo",
+    description: "Encontro em grupo, só pra essa turma, pra tirar dúvida com os seus números.",
+  },
+  {
+    name: "Grupo Fechado de Execução",
+    description: "Comunidade só de quem entrou nesse lançamento, pra trocar experiência aplicando.",
+  },
+];
+
 export type FaqItem = { question: string; answer: string };
 
 export const faq: FaqItem[] = [
@@ -123,13 +140,14 @@ export const faq: FaqItem[] = [
     answer: `Assim que a inscrição é confirmada, o acesso é liberado. E você tem ${guarantee.days} dias de garantia incondicional (${guarantee.rule}), conforme o Código de Defesa do Consumidor.`,
   },
   {
-    question: "Posso parcelar?",
-    answer: `Sim, em até ${pricing.installments.count}x no cartão — condição completa na seção da oferta, acima.`,
+    question: "Por que só Pix?",
+    answer:
+      "Porque é a forma mais rápida de confirmar sua vaga na condição de lançamento — sem taxa, sem espera de compensação. O pagamento é único, à vista.",
   },
   {
     question: "O que está incluso?",
     answer:
-      "Os quatro pilares do programa — receita, eficiência, custos e cultura — com diagnóstico e plano de aplicação para cada um.",
+      "Os quatro pilares do programa — receita, eficiência, custos e cultura — com diagnóstico e plano de aplicação para cada um, mais os 4 bônus da condição de lançamento.",
   },
   {
     question: "Será que isso é para mim?",

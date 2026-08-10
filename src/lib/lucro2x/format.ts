@@ -1,5 +1,5 @@
 // Helpers de formatação usados só pela página /lucro2x. Tudo em centavos pra
-// evitar erro de ponto flutuante nas contas de parcelamento.
+// evitar erro de ponto flutuante.
 
 export function formatBRL(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", {

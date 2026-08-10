@@ -1,17 +1,13 @@
-import { Check, ShieldCheck } from "lucide-react";
+import { Check, ShieldCheck, Zap } from "lucide-react";
 import { guarantee, offerWindow, pricing, programInfo } from "@/lib/lucro2x/config";
 import { formatBRL } from "@/lib/lucro2x/format";
 import { CtaButton } from "./CtaButton";
 import { Countdown } from "./Countdown";
 import { Section, Eyebrow } from "./Section";
 
-function installmentValueCents() {
-  const { count, valueCentsOverride } = pricing.installments;
-  return valueCentsOverride ?? Math.round(pricing.fullPriceCents / count);
-}
-
 const included = [
   "Acesso ao programa completo — os 4 pilares",
+  "Os 4 bônus da condição de lançamento",
   "Condição exclusiva apresentada neste lançamento",
 ];
 
@@ -65,9 +61,8 @@ export function Offer() {
             <span className="font-display text-5xl font-semibold tracking-tight text-foreground sm:text-6xl">
               {formatBRL(pricing.fullPriceCents)}
             </span>
-            <span className="mt-2 text-sm text-muted-foreground">à vista</span>
-            <span className="mt-1 text-sm text-muted-foreground">
-              ou {pricing.installments.count}x de {formatBRL(installmentValueCents())}
+            <span className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground">
+              <Zap className="h-3.5 w-3.5 text-primary" strokeWidth={2} />À vista, via Pix
             </span>
           </div>
 
