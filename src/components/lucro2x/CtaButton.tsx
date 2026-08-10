@@ -1,13 +1,12 @@
+import { Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
 import { Button, type ButtonProps } from "@/components/ui/button";
-import { checkout } from "@/lib/lucro2x/config";
 import { trackEvent } from "@/lib/lucro2x/tracking";
 import { cn } from "@/lib/utils";
 
-// CTA único e reutilizado em toda a página — garante que todo botão de
-// "entrar" aponta pro mesmo lugar (checkout.url em config.ts) e dispara o
-// mesmo evento de rastreamento, então trocar o link do checkout é uma
-// mudança de uma linha só, não uma caça a botão por botão.
+// CTA único e reutilizado em toda a página — todo botão de "entrar" leva
+// pra /lucro2x/checkout (rota interna, ver routes/lucro2x.checkout.tsx) e
+// dispara o mesmo evento de rastreamento.
 export function CtaButton({
   children,
   location,
@@ -34,13 +33,13 @@ export function CtaButton({
         className,
       )}
     >
-      <a
-        href={checkout.url}
+      <Link
+        to="/lucro2x/checkout"
         onClick={() => trackEvent("InitiateCheckout", { content_name: location })}
       >
         {children}
         <ArrowRight className="h-4 w-4" />
-      </a>
+      </Link>
     </Button>
   );
 }

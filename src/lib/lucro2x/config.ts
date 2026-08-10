@@ -56,12 +56,10 @@ export const guarantee = {
   rule: "reembolso integral, sem burocracia",
 };
 
-export const checkout = {
-  // [LINK DO CHECKOUT OFICIAL] — enquanto não houver link real, os CTAs
-  // rolam até a seção de oferta (#oferta) em vez de apontar pra um link
-  // quebrado ou inventado.
-  url: "#oferta",
-};
+// O checkout agora é interno (rota /lucro2x/checkout, formulário +
+// geração de Pix — ver src/lib/lucro2x/payment/). Não tem link externo
+// pra configurar aqui; o que falta é a chave do gateway, como variável de
+// ambiente do servidor (ver src/lib/lucro2x/payment/mercadopago.ts).
 
 export const tracking = {
   // [PIXEL_ID] / [GA_ID] — enquanto null, nenhum script de rastreamento é
