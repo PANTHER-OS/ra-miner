@@ -1,5 +1,8 @@
+import { PiggyBank, Settings2, TrendingUp, Users2 } from "lucide-react";
 import { pillars } from "@/lib/lucro2x/config";
 import { Section, Eyebrow } from "./Section";
+
+const icons = [TrendingUp, Settings2, PiggyBank, Users2];
 
 export function Pillars() {
   return (
@@ -11,24 +14,27 @@ export function Pillars() {
         </h2>
       </div>
 
-      <div className="mt-10 grid gap-5 sm:grid-cols-2">
-        {pillars.map((pillar) => (
-          <div key={pillar.number} className="hover-lift surface-card rounded-2xl p-6">
-            <div className="flex items-baseline gap-3">
-              <span className="font-display text-2xl font-semibold text-primary/70">
-                {pillar.number}
-              </span>
-              <h3 className="font-display text-lg font-semibold text-foreground">{pillar.name}</h3>
-            </div>
+      <div className="mt-10 grid gap-4 sm:grid-cols-2">
+        {pillars.map((pillar, i) => {
+          const Icon = icons[i];
+          return (
+            <div key={pillar.number} className="hover-lift surface-card rounded-2xl p-6">
+              <div className="flex items-center gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+                  <Icon className="h-4.5 w-4.5" strokeWidth={1.75} />
+                </span>
+                <h3 className="font-display text-lg font-semibold text-foreground">
+                  {pillar.name}
+                </h3>
+              </div>
 
-            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{pillar.insight}</p>
-
-            <div className="mt-4 border-t border-border/70 pt-4">
-              <p className="text-sm font-medium text-foreground/90">{pillar.delivery}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{pillar.benefit}</p>
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{pillar.insight}</p>
+              <p className="mt-3 border-t border-border/70 pt-3 text-sm font-medium text-foreground/90">
+                {pillar.takeaway}
+              </p>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </Section>
   );

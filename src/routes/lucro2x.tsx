@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Lucro2xPage } from "@/components/lucro2x/Lucro2xPage";
 import { programInfo, tracking } from "@/lib/lucro2x/config";
+import { BASE_URL } from "@/lib/site";
 
 // Página de oferta de lançamento, isolada do resto do app (Atloura) — não
 // usa o layout "_explorer" nem nenhum componente/estado dele. Rota fixa:
@@ -27,6 +28,14 @@ export const Route = createFileRoute("/lucro2x")({
         content: "Oferta exclusiva de lançamento — condição especial por tempo limitado.",
       },
       { property: "og:type", content: "website" },
+      // Imagem própria da oferta (gerada especificamente pra essa página) —
+      // sem isso, o link no WhatsApp/Instagram herdava a prévia do Atloura.
+      { property: "og:image", content: `${BASE_URL}/lucro2x/og.jpg` },
+      { property: "og:image:width", content: "1200" },
+      { property: "og:image:height", content: "630" },
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: programInfo.name },
+      { name: "twitter:image", content: `${BASE_URL}/lucro2x/og.jpg` },
     ],
     scripts: [
       ...(tracking.googleAnalyticsId

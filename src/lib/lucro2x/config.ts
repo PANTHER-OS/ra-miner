@@ -26,8 +26,7 @@ export const programInfo = {
 };
 
 export const pricing = {
-  // Preço planejado — ainda não 100% confirmado (ver contexto do briefing).
-  fullPriceCents: 49990, // R$ 499,90
+  fullPriceCents: 35990, // R$ 359,90 — preço definitivo
   // Preço de referência anterior, se existir (pra ancoragem). Deixe `null`
   // enquanto não houver preço oficial anterior confirmado.
   anchorPriceCents: null as number | null,
@@ -75,47 +74,41 @@ export type Pillar = {
   number: string;
   name: string;
   insight: string;
-  delivery: string;
-  benefit: string;
+  takeaway: string;
 };
 
-// Os 4 pilares vêm confirmados do briefing oficial do evento. `delivery`
-// descreve a abordagem de cada pilar em nível conceitual (não formato/
-// quantidade de aula, que ainda não está definido) — dá pra publicar sem
-// ficar vago, e trocar por texto mais específico assim que a grade real
-// existir.
+// Os 4 pilares vêm confirmados do briefing oficial do evento. `takeaway`
+// junta abordagem + benefício numa linha só (nível conceitual, não formato/
+// quantidade de aula, que ainda não está definido) — publicável sem ficar
+// vago, e fácil de trocar por texto mais específico quando a grade existir.
 export const pillars: Pillar[] = [
   {
     number: "01",
     name: "Geração de receita",
     insight:
       "Faturar mais e crescer de verdade nem sempre são a mesma coisa — receita saudável é a que se sustenta sem depender de desconto ou esforço constante do dono.",
-    delivery: "Leitura completa de onde a receita da empresa vem — e onde ela está estagnada.",
-    benefit: "Mais clareza sobre onde crescer de verdade compensa.",
+    takeaway: "Leitura completa de onde a receita vem e onde crescer de verdade compensa.",
   },
   {
     number: "02",
     name: "Eficiência operacional",
     insight:
-      "Crescer sem revisar processo aumenta a complexidade mais rápido que o resultado. Eficiência não é fazer mais rápido — é remover o que não deveria estar no processo.",
-    delivery: "Mapa da operação, do gargalo ao ajuste prático.",
-    benefit: "Uma operação que sustenta o crescimento, em vez de travar nele.",
+      "Crescer sem revisar processo aumenta a complexidade mais rápido que o resultado. Eficiência é remover o que não deveria estar no processo.",
+    takeaway: "Mapa da operação, do gargalo ao ajuste prático — pra crescer sem travar.",
   },
   {
     number: "03",
     name: "Otimização de custos",
     insight:
-      "Boa parte da margem que deveria sobrar se perde em custos que ninguém revisita. Custo bom é o que gera retorno mensurável — o resto é vazamento de margem.",
-    delivery: "Raio-x dos custos atuais, com plano de corte e realocação.",
-    benefit: "Mais margem sem depender só de vender mais.",
+      "Boa parte da margem que deveria sobrar se perde em custos que ninguém revisita. Custo bom é o que gera retorno mensurável.",
+    takeaway: "Raio-x dos custos atuais, com plano de corte e realocação de margem.",
   },
   {
     number: "04",
     name: "Criação de cultura",
     insight:
-      "Empresas que crescem sem cultura clara dependem demais do dono pra tudo funcionar — e isso tem teto. Cultura é o que faz a empresa decidir bem quando ele não está olhando.",
-    delivery: "Estrutura de decisão pra empresa rodar sem depender só do dono.",
-    benefit: "Um time que executa a visão sem precisar ser lembrado dela toda semana.",
+      "Empresas que crescem sem cultura clara dependem demais do dono pra tudo funcionar — e isso tem teto.",
+    takeaway: "Estrutura de decisão pra empresa rodar sem depender só do dono.",
   },
 ];
 
@@ -125,49 +118,29 @@ export const faq: FaqItem[] = [
   {
     question: "Para quem é o programa?",
     answer:
-      "Para empresários e empreendedores que já têm uma empresa em operação e faturamento, e querem estruturar melhor a relação entre lucro do negócio e patrimônio pessoal.",
+      "Para empresários que já têm empresa em operação e faturamento, e querem estruturar melhor a relação entre lucro do negócio e patrimônio pessoal.",
   },
   {
-    question: "Preciso já ter empresa e faturamento?",
-    answer:
-      "Sim. O programa trabalha decisões sobre uma operação que já existe e já fatura — não é uma introdução para quem ainda vai começar.",
-  },
-  {
-    question: "Como funciona o acesso?",
-    answer:
-      "Assim que a inscrição é confirmada, o acesso é liberado e você começa pelo diagnóstico de estrutura.",
-  },
-  {
-    question: "Existe garantia?",
-    answer: `Sim — garantia incondicional de ${guarantee.days} dias, ${guarantee.rule}, conforme o Código de Defesa do Consumidor.`,
+    question: "Como funciona o acesso e a garantia?",
+    answer: `Assim que a inscrição é confirmada, o acesso é liberado. E você tem ${guarantee.days} dias de garantia incondicional (${guarantee.rule}), conforme o Código de Defesa do Consumidor.`,
   },
   {
     question: "Posso parcelar?",
-    answer: `Sim, em até ${pricing.installments.count}x no cartão. A condição completa está na seção da oferta, acima.`,
+    answer: `Sim, em até ${pricing.installments.count}x no cartão — condição completa na seção da oferta, acima.`,
   },
   {
     question: "O que está incluso?",
     answer:
-      "Os quatro pilares do programa — geração de receita, eficiência, custos e cultura — com diagnóstico e plano de aplicação para cada um. Veja o detalhe na seção acima.",
+      "Os quatro pilares do programa — receita, eficiência, custos e cultura — com diagnóstico e plano de aplicação para cada um.",
+  },
+  {
+    question: "Será que isso é para mim?",
+    answer:
+      "Se você já toma decisões de gestão, custo e crescimento na sua empresa — e sente que poderiam ser mais estruturadas — o conteúdo foi pensado pra esse momento.",
   },
   {
     question: "Por que essa condição é diferente da que vai aparecer depois?",
     answer:
       "Porque é a condição apresentada exclusivamente a quem acompanhou a transmissão de 11 de agosto — depois deste lançamento, as condições podem mudar.",
-  },
-];
-
-export type Objection = { objection: string; response: string };
-
-export const objections: Objection[] = [
-  {
-    objection: "Será que isso é para mim?",
-    response:
-      "Se você já toma decisões de gestão, custo e crescimento na sua empresa — e sente que essas decisões poderiam ser mais estruturadas — o conteúdo foi pensado exatamente pra esse momento.",
-  },
-  {
-    objection: "É muito investimento?",
-    response:
-      "Compare com o custo de continuar tomando decisões de lucro e patrimônio sem uma estrutura clara pra isso — esse é o cálculo que importa, não o valor isolado.",
   },
 ];
