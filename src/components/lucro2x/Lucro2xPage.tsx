@@ -1,3 +1,4 @@
+import { CheckoutModalProvider } from "@/lib/lucro2x/checkout-modal-context";
 import { Hero } from "./Hero";
 import { Shift } from "./Shift";
 import { Pillars } from "./Pillars";
@@ -7,27 +8,33 @@ import { Faq } from "./Faq";
 import { MidCta } from "./MidCta";
 import { StickyCta } from "./StickyCta";
 import { Footer } from "./Footer";
+import { CheckoutModal } from "./CheckoutModal";
 
 // Sequência enxuta: contexto (no hero) → virada de mentalidade → solução
 // (pilares) → bônus → oferta → dúvidas (FAQ, já incluindo as objeções
 // principais) → CTA final. Cada seção lê o conteúdo editável de
-// src/lib/lucro2x/config.ts.
+// src/lib/lucro2x/config.ts. O CheckoutModalProvider fica aqui em cima —
+// qualquer CtaButton em qualquer seção abre o mesmo <CheckoutModal/>,
+// renderizado uma vez só no fim.
 export function Lucro2xPage() {
   return (
-    <div className="min-h-screen">
-      <Hero />
-      <Shift />
-      <Pillars />
-      <Bonuses />
-      <Offer />
-      <Faq />
-      <MidCta
-        headline="Pronto para transformar lucro em patrimônio, com estrutura?"
-        location="final"
-        label="Quero entrar"
-      />
-      <Footer />
-      <StickyCta />
-    </div>
+    <CheckoutModalProvider>
+      <div className="min-h-screen">
+        <Hero />
+        <Shift />
+        <Pillars />
+        <Bonuses />
+        <Offer />
+        <Faq />
+        <MidCta
+          headline="Pronto para transformar lucro em patrimônio, com estrutura?"
+          location="final"
+          label="Quero entrar"
+        />
+        <Footer />
+        <StickyCta />
+      </div>
+      <CheckoutModal />
+    </CheckoutModalProvider>
   );
 }

@@ -13,8 +13,6 @@ import { Route as ExplorerRouteImport } from './routes/_explorer'
 import { Route as Lucro2xRouteImport } from './routes/lucro2x'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as ExplorerIndexRouteImport } from './routes/_explorer/index'
-import { Route as Lucro2xIndexRouteImport } from './routes/lucro2x.index'
-import { Route as Lucro2xCheckoutRouteImport } from './routes/lucro2x.checkout'
 import { Route as ApiLucro2xCheckoutRouteImport } from './routes/api/lucro2x/checkout'
 import { Route as ApiPublicCountriesRouteImport } from './routes/api/public/countries'
 import { Route as ExplorerPaisCca2IndexRouteImport } from './routes/_explorer/pais/$cca2/index'
@@ -39,16 +37,6 @@ const ExplorerIndexRoute = ExplorerIndexRouteImport.update({
   path: '/',
   getParentRoute: () => ExplorerRoute,
 } as any)
-const Lucro2xIndexRoute = Lucro2xIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => Lucro2xRoute,
-} as any)
-const Lucro2xCheckoutRoute = Lucro2xCheckoutRouteImport.update({
-  id: '/checkout',
-  path: '/checkout',
-  getParentRoute: () => Lucro2xRoute,
-} as any)
 const ApiLucro2xCheckoutRoute = ApiLucro2xCheckoutRouteImport.update({
   id: '/api/lucro2x/checkout',
   path: '/api/lucro2x/checkout',
@@ -72,20 +60,17 @@ const ExplorerPaisCca2CidadeRoute = ExplorerPaisCca2CidadeRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof ExplorerIndexRoute
-  '/lucro2x': typeof Lucro2xRouteWithChildren
+  '/lucro2x': typeof Lucro2xRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
-  '/lucro2x/checkout': typeof Lucro2xCheckoutRoute
-  '/lucro2x/': typeof Lucro2xIndexRoute
   '/api/lucro2x/checkout': typeof ApiLucro2xCheckoutRoute
   '/api/public/countries': typeof ApiPublicCountriesRoute
   '/pais/$cca2/$cidade': typeof ExplorerPaisCca2CidadeRoute
   '/pais/$cca2/': typeof ExplorerPaisCca2IndexRoute
 }
 export interface FileRoutesByTo {
+  '/lucro2x': typeof Lucro2xRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
-  '/lucro2x/checkout': typeof Lucro2xCheckoutRoute
   '/': typeof ExplorerIndexRoute
-  '/lucro2x': typeof Lucro2xIndexRoute
   '/api/lucro2x/checkout': typeof ApiLucro2xCheckoutRoute
   '/api/public/countries': typeof ApiPublicCountriesRoute
   '/pais/$cca2/$cidade': typeof ExplorerPaisCca2CidadeRoute
@@ -94,11 +79,9 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_explorer': typeof ExplorerRouteWithChildren
-  '/lucro2x': typeof Lucro2xRouteWithChildren
+  '/lucro2x': typeof Lucro2xRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
-  '/lucro2x/checkout': typeof Lucro2xCheckoutRoute
   '/_explorer/': typeof ExplorerIndexRoute
-  '/lucro2x/': typeof Lucro2xIndexRoute
   '/api/lucro2x/checkout': typeof ApiLucro2xCheckoutRoute
   '/api/public/countries': typeof ApiPublicCountriesRoute
   '/_explorer/pais/$cca2/$cidade': typeof ExplorerPaisCca2CidadeRoute
@@ -110,18 +93,15 @@ export interface FileRouteTypes {
     | '/'
     | '/lucro2x'
     | '/sitemap.xml'
-    | '/lucro2x/checkout'
-    | '/lucro2x/'
     | '/api/lucro2x/checkout'
     | '/api/public/countries'
     | '/pais/$cca2/$cidade'
     | '/pais/$cca2/'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/sitemap.xml'
-    | '/lucro2x/checkout'
-    | '/'
     | '/lucro2x'
+    | '/sitemap.xml'
+    | '/'
     | '/api/lucro2x/checkout'
     | '/api/public/countries'
     | '/pais/$cca2/$cidade'
@@ -131,9 +111,7 @@ export interface FileRouteTypes {
     | '/_explorer'
     | '/lucro2x'
     | '/sitemap.xml'
-    | '/lucro2x/checkout'
     | '/_explorer/'
-    | '/lucro2x/'
     | '/api/lucro2x/checkout'
     | '/api/public/countries'
     | '/_explorer/pais/$cca2/$cidade'
@@ -142,7 +120,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   ExplorerRoute: typeof ExplorerRouteWithChildren
-  Lucro2xRoute: typeof Lucro2xRouteWithChildren
+  Lucro2xRoute: typeof Lucro2xRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiLucro2xCheckoutRoute: typeof ApiLucro2xCheckoutRoute
   ApiPublicCountriesRoute: typeof ApiPublicCountriesRoute
@@ -177,20 +155,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof ExplorerIndexRouteImport
       parentRoute: typeof ExplorerRoute
-    }
-    '/lucro2x/': {
-      id: '/lucro2x/'
-      path: '/'
-      fullPath: '/lucro2x/'
-      preLoaderRoute: typeof Lucro2xIndexRouteImport
-      parentRoute: typeof Lucro2xRoute
-    }
-    '/lucro2x/checkout': {
-      id: '/lucro2x/checkout'
-      path: '/checkout'
-      fullPath: '/lucro2x/checkout'
-      preLoaderRoute: typeof Lucro2xCheckoutRouteImport
-      parentRoute: typeof Lucro2xRoute
     }
     '/api/lucro2x/checkout': {
       id: '/api/lucro2x/checkout'
@@ -239,22 +203,9 @@ const ExplorerRouteWithChildren = ExplorerRoute._addFileChildren(
   ExplorerRouteChildren,
 )
 
-interface Lucro2xRouteChildren {
-  Lucro2xCheckoutRoute: typeof Lucro2xCheckoutRoute
-  Lucro2xIndexRoute: typeof Lucro2xIndexRoute
-}
-
-const Lucro2xRouteChildren: Lucro2xRouteChildren = {
-  Lucro2xCheckoutRoute: Lucro2xCheckoutRoute,
-  Lucro2xIndexRoute: Lucro2xIndexRoute,
-}
-
-const Lucro2xRouteWithChildren =
-  Lucro2xRoute._addFileChildren(Lucro2xRouteChildren)
-
 const rootRouteChildren: RootRouteChildren = {
   ExplorerRoute: ExplorerRouteWithChildren,
-  Lucro2xRoute: Lucro2xRouteWithChildren,
+  Lucro2xRoute: Lucro2xRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiLucro2xCheckoutRoute: ApiLucro2xCheckoutRoute,
   ApiPublicCountriesRoute: ApiPublicCountriesRoute,

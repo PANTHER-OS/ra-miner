@@ -21,7 +21,7 @@ export function Pillars() {
           return (
             <motion.div
               key={pillar.number}
-              className="hover-lift surface-card rounded-2xl p-6"
+              className="surface-card rounded-2xl p-6"
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-60px" }}

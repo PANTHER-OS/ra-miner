@@ -1,18 +1,41 @@
-import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { tracking } from "@/lib/lucro2x/config";
+import { createFileRoute } from "@tanstack/react-router";
+import { Lucro2xPage } from "@/components/lucro2x/Lucro2xPage";
+import { programInfo, tracking } from "@/lib/lucro2x/config";
+import { BASE_URL } from "@/lib/site";
 
-// Layout "pai" só pra permitir uma rota filha (/lucro2x/checkout) sem
-// aninhar visualmente dentro da página de vendas — mesmo padrão que
-// "_explorer.tsx" já usa no resto do app, mas aqui sem UI própria: só
-// <Outlet/>. Ver src/routes/lucro2x.index.tsx (a página em si) e
-// src/routes/lucro2x.checkout.tsx.
-//
-// Scripts de rastreamento (Meta Pixel / GA4) ficam aqui, no nível
-// compartilhado, pra valer tanto na página de vendas quanto no checkout —
-// só entram no HTML quando os IDs estiverem preenchidos em
-// src/lib/lucro2x/config.ts.
+// Página de oferta de lançamento, isolada do resto do app (Atloura) — não
+// usa o layout "_explorer" nem nenhum componente/estado dele. O checkout
+// não é mais uma rota separada — é um modal (ver CheckoutModal.tsx) que
+// abre por cima dessa mesma página, então não existe navegação/transição
+// de rota pra animar: só o modal abrindo e fechando.
 export const Route = createFileRoute("/lucro2x")({
   head: () => ({
+    meta: [
+      { title: `${programInfo.name} — Condição de lançamento` },
+      {
+        name: "description",
+        content:
+          "Oferta exclusiva de lançamento para quem acompanhou a transmissão. Vagas e condição especial por tempo limitado.",
+      },
+      // Página de funil de tráfego direcionado (link do grupo), não uma
+      // página de conteúdo do site — não deve ser indexada nem aparecer em
+      // busca antes da hora.
+      { name: "robots", content: "noindex, nofollow" },
+      { property: "og:title", content: programInfo.name },
+      {
+        property: "og:description",
+        content: "Oferta exclusiva de lançamento — condição especial por tempo limitado.",
+      },
+      { property: "og:type", content: "website" },
+      // Imagem própria da oferta (gerada especificamente pra essa página) —
+      // sem isso, o link no WhatsApp/Instagram herdava a prévia do Atloura.
+      { property: "og:image", content: `${BASE_URL}/lucro2x/og.jpg` },
+      { property: "og:image:width", content: "1200" },
+      { property: "og:image:height", content: "630" },
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: programInfo.name },
+      { name: "twitter:image", content: `${BASE_URL}/lucro2x/og.jpg` },
+    ],
     scripts: [
       ...(tracking.googleAnalyticsId
         ? [
@@ -34,5 +57,5 @@ export const Route = createFileRoute("/lucro2x")({
         : []),
     ],
   }),
-  component: () => <Outlet />,
+  component: Lucro2xPage,
 });

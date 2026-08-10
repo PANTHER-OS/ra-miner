@@ -2,19 +2,30 @@ import { motion } from "framer-motion";
 
 // Peça gráfica gerada (SVG puro, sem imagem externa) que substitui a foto
 // que ainda não existe: um mini "painel" com barras ascendentes + linha de
-// tendência, ecoando a cadeia Receita → Patrimônio que reaparece mais
-// abaixo na página. Abstrata, sem foto de pessoa nem logo de terceiros, e
-// funciona em qualquer tema porque só usa as CSS vars do design system.
-// As barras "crescem" e a linha "desenha" ao montar — só acontece uma vez,
-// não fica repetindo.
-const bars = [38, 52, 46, 68, 60, 86];
+// tendência, narrando a mesma cadeia Receita → Patrimônio que reaparece
+// mais abaixo na página — cada barra "revela" a etapa dela ao crescer, em
+// vez de ser só uma curva genérica. Abstrata, sem foto de pessoa nem logo
+// de terceiros, e funciona em qualquer tema porque só usa as CSS vars do
+// design system. A entrada acontece uma vez só; o brilho na última barra
+// continua respirando bem devagar depois, pra não ficar "morta" no resto
+// do tempo em que a pessoa olha pra página.
+const EASE = [0.16, 1, 0.3, 1] as const;
+const stages = [
+  { value: 38, label: "Receita" },
+  { value: 52, label: "Eficiência" },
+  { value: 46, label: "Margem" },
+  { value: 68, label: "Lucro" },
+  { value: 60, label: "Alocação" },
+  { value: 86, label: "Patrimônio" },
+];
 
 export function HeroVisual() {
   const chartW = 320;
-  const chartH = 170;
+  const chartH = 200;
+  const topMargin = 34; // espaço reservado acima da barra mais alta pro rótulo + linha
   const gap = 10;
-  const barW = (chartW - gap * (bars.length - 1)) / bars.length;
-  const max = Math.max(...bars);
+  const barW = (chartW - gap * (stages.length - 1)) / stages.length;
+  const max = Math.max(...stages.map((s) => s.value));
 
   return (
     <div className="surface-card relative aspect-square w-full overflow-hidden rounded-3xl p-7 shadow-[var(--shadow-panel)] sm:p-9">
@@ -56,9 +67,9 @@ export function HeroVisual() {
 
         <svg
           viewBox={`0 0 ${chartW} ${chartH}`}
-          className="h-auto w-full"
+          className="h-auto w-full overflow-visible"
           role="img"
-          aria-label="Barras ascendentes representando crescimento estruturado"
+          aria-label="Barras ascendentes narrando a cadeia de receita até patrimônio"
         >
           <defs>
             <linearGradient id="l2x-bar" x1="0" y1="1" x2="0" y2="0">
@@ -69,34 +80,73 @@ export function HeroVisual() {
               <stop offset="0%" stopColor="oklch(0.72 0.16 55)" />
               <stop offset="100%" stopColor="oklch(0.88 0.17 85)" />
             </linearGradient>
+            <radialGradient id="l2x-pulse" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="oklch(0.88 0.17 85 / 0.55)" />
+              <stop offset="100%" stopColor="oklch(0.88 0.17 85 / 0)" />
+            </radialGradient>
           </defs>
 
-          {bars.map((v, i) => {
-            const h = (v / max) * (chartH - 14);
+          {stages.map((stage, i) => {
+            const h = (stage.value / max) * (chartH - topMargin);
             const x = i * (barW + gap);
             const y = chartH - h;
-            const isLast = i === bars.length - 1;
+            const isLast = i === stages.length - 1;
+            const barDelay = 0.4 + i * 0.08;
+
             return (
-              <motion.rect
-                key={i}
-                x={x}
-                width={barW}
-                rx={4}
-                fill="url(#l2x-bar)"
-                opacity={isLast ? 1 : 0.45 + i * 0.06}
-                initial={{ height: 0, y: chartH }}
-                animate={{ height: h, y }}
-                transition={{ duration: 0.7, delay: 0.4 + i * 0.08, ease: [0.16, 1, 0.3, 1] }}
-              />
+              <g key={stage.label}>
+                <motion.rect
+                  x={x}
+                  width={barW}
+                  rx={4}
+                  fill="url(#l2x-bar)"
+                  opacity={isLast ? 1 : 0.45 + i * 0.06}
+                  initial={{ height: 0, y: chartH }}
+                  animate={{ height: h, y }}
+                  transition={{ duration: 0.7, delay: barDelay, ease: EASE }}
+                />
+                {/* Brilho contínuo só na última barra, e só depois que a
+                    entrada termina — é a única animação em loop aqui. */}
+                {isLast && (
+                  <motion.circle
+                    cx={x + barW / 2}
+                    cy={y}
+                    r={16}
+                    fill="url(#l2x-pulse)"
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: [0, 0.9, 0.4], scale: [0.8, 1.15, 1] }}
+                    transition={{
+                      delay: barDelay + 0.9,
+                      duration: 2.6,
+                      repeat: Infinity,
+                      repeatType: "mirror",
+                      ease: "easeInOut",
+                    }}
+                  />
+                )}
+                <motion.text
+                  x={x + barW / 2}
+                  y={y - 8}
+                  textAnchor="middle"
+                  fontSize={9}
+                  fontWeight={isLast ? 700 : 500}
+                  fill={isLast ? "oklch(0.88 0.17 85)" : "var(--muted-foreground)"}
+                  initial={{ opacity: 0, y: y + 4 }}
+                  animate={{ opacity: 1, y: y - 8 }}
+                  transition={{ duration: 0.45, delay: barDelay + 0.55, ease: EASE }}
+                >
+                  {stage.label}
+                </motion.text>
+              </g>
             );
           })}
 
           <motion.polyline
-            points={bars
-              .map((v, i) => {
-                const h = (v / max) * (chartH - 14);
+            points={stages
+              .map((stage, i) => {
+                const h = (stage.value / max) * (chartH - topMargin);
                 const x = i * (barW + gap) + barW / 2;
-                const y = chartH - h - 10;
+                const y = chartH - h - 14;
                 return `${x},${y}`;
               })
               .join(" ")}

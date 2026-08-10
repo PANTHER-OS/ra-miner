@@ -21,7 +21,7 @@ export function Bonuses() {
           return (
             <motion.div
               key={bonus.name}
-              className="hover-lift surface-card flex items-start gap-3.5 rounded-2xl p-5"
+              className="surface-card flex items-start gap-3.5 rounded-2xl p-5"
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-60px" }}
