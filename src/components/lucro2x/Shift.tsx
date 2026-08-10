@@ -35,23 +35,60 @@ export function Shift() {
         ))}
       </div>
 
-      <div className="mx-auto mt-10 flex max-w-2xl flex-wrap items-center justify-center gap-y-2">
-        {chain.map((step, i) => (
-          <div key={step} className="flex items-center">
-            <span className="rounded-full border border-border bg-surface-elevated/80 px-3.5 py-1.5 text-sm font-medium text-foreground/90">
-              {step}
-            </span>
-            {i < chain.length - 1 && (
-              <ArrowRight className="mx-1.5 h-4 w-4 shrink-0 text-primary/70" />
-            )}
-          </div>
-        ))}
-      </div>
+      {/* Painel do mecanismo: a mesma cadeia Receita→Patrimônio, agora sobre
+          uma curva ascendente gerada (SVG) em vez de só uma fileira de
+          pílulas soltas — vira peça gráfica, não lista. */}
+      <div className="surface-card relative mx-auto mt-10 max-w-2xl overflow-hidden rounded-2xl px-5 py-8 sm:px-10">
+        <svg
+          viewBox="0 0 100 36"
+          preserveAspectRatio="none"
+          className="pointer-events-none absolute inset-0 h-full w-full opacity-80"
+          aria-hidden
+        >
+          <defs>
+            <linearGradient id="shift-curve" x1="0" y1="1" x2="1" y2="0">
+              <stop offset="0%" stopColor="oklch(0.72 0.16 55 / 0.35)" />
+              <stop offset="100%" stopColor="oklch(0.88 0.17 85)" />
+            </linearGradient>
+            <radialGradient id="shift-glow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="oklch(0.88 0.17 85 / 0.5)" />
+              <stop offset="100%" stopColor="oklch(0.88 0.17 85 / 0)" />
+            </radialGradient>
+          </defs>
+          <path
+            d="M 2 28 C 20 26, 30 22, 42 20 S 62 12, 74 10 S 92 4, 98 3"
+            fill="none"
+            stroke="url(#shift-curve)"
+            strokeWidth="0.6"
+            strokeLinecap="round"
+          />
+          <circle cx="98" cy="3" r="9" fill="url(#shift-glow)" />
+        </svg>
 
-      <p className="mx-auto mt-6 max-w-lg text-center text-sm text-muted-foreground">
-        O programa trabalha essa cadeia de forma integrada — não como três temas separados, mas como
-        uma única sequência de decisão.
-      </p>
+        <div className="relative flex flex-wrap items-center justify-center gap-y-2">
+          {chain.map((step, i) => (
+            <div key={step} className="flex items-center">
+              <span
+                className={
+                  i === chain.length - 1
+                    ? "rounded-full border border-primary/50 bg-surface-elevated px-3.5 py-1.5 text-sm font-semibold text-primary shadow-[0_0_20px_-4px_oklch(0.82_0.14_78_/_0.6)]"
+                    : "rounded-full border border-border bg-surface-elevated/80 px-3.5 py-1.5 text-sm font-medium text-foreground/90"
+                }
+              >
+                {step}
+              </span>
+              {i < chain.length - 1 && (
+                <ArrowRight className="mx-1.5 h-4 w-4 shrink-0 text-primary/70" />
+              )}
+            </div>
+          ))}
+        </div>
+
+        <p className="relative mx-auto mt-6 max-w-lg text-center text-sm text-muted-foreground">
+          O programa trabalha essa cadeia de forma integrada — não como três temas separados, mas
+          como uma única sequência de decisão.
+        </p>
+      </div>
     </Section>
   );
 }
