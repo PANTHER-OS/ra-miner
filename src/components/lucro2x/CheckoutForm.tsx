@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { Check, Copy, Loader2, ShieldCheck, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -68,105 +69,118 @@ export function CheckoutForm() {
     }
   }
 
-  if (status === "success" && charge) {
-    return (
-      <PixResult
-        charge={charge}
-        copied={copied}
-        onCopy={() => copyCode(charge.copyPasteCode, setCopied)}
-      />
-    );
-  }
-
-  if (status === "not_configured") {
-    return (
-      <StateCard
-        icon={<ShieldCheck className="h-5 w-5" strokeWidth={1.75} />}
-        title="Pagamento ainda não está ativo"
-        message="Essa etapa está pronta, mas o Pix ainda não foi conectado — assim que a chave for configurada, o pagamento libera automaticamente aqui, sem precisar mudar nada nessa tela."
-      />
-    );
-  }
-
-  if (status === "error") {
-    return (
-      <StateCard
-        icon={<TriangleAlert className="h-5 w-5" strokeWidth={1.75} />}
-        title="Não deu pra gerar o Pix agora"
-        message="Algo falhou do nosso lado. Tenta de novo em alguns instantes."
-        action={
-          <Button variant="outline" onClick={() => setStatus("form")}>
-            Tentar novamente
-          </Button>
-        }
-      />
-    );
-  }
-
   return (
-    <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-      <Field label="Nome completo" error={touched.fullName ? errors.fullName : undefined}>
-        <Input
-          autoComplete="name"
-          value={form.fullName}
-          onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
-          onBlur={() => setTouched((t) => ({ ...t, fullName: true }))}
-          placeholder="Seu nome completo"
-        />
-      </Field>
+    <AnimatePresence mode="wait">
+      {status === "success" && charge ? (
+        <Step key="success">
+          <PixResult
+            charge={charge}
+            copied={copied}
+            onCopy={() => copyCode(charge.copyPasteCode, setCopied)}
+          />
+        </Step>
+      ) : status === "not_configured" ? (
+        <Step key="not_configured">
+          <StateCard
+            icon={<ShieldCheck className="h-5 w-5" strokeWidth={1.75} />}
+            title="Pagamento ainda não está ativo"
+            message="Essa etapa está pronta, mas o Pix ainda não foi conectado — assim que a chave for configurada, o pagamento libera automaticamente aqui, sem precisar mudar nada nessa tela."
+          />
+        </Step>
+      ) : status === "error" ? (
+        <Step key="error">
+          <StateCard
+            icon={<TriangleAlert className="h-5 w-5" strokeWidth={1.75} />}
+            title="Não deu pra gerar o Pix agora"
+            message="Algo falhou do nosso lado. Tenta de novo em alguns instantes."
+            action={
+              <Button variant="outline" onClick={() => setStatus("form")}>
+                Tentar novamente
+              </Button>
+            }
+          />
+        </Step>
+      ) : (
+        <Step key="form">
+          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+            <Field label="Nome completo" error={touched.fullName ? errors.fullName : undefined}>
+              <Input
+                autoComplete="name"
+                value={form.fullName}
+                onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
+                onBlur={() => setTouched((t) => ({ ...t, fullName: true }))}
+                placeholder="Seu nome completo"
+              />
+            </Field>
 
-      <Field label="CPF" error={touched.cpf ? errors.cpf : undefined}>
-        <Input
-          inputMode="numeric"
-          autoComplete="off"
-          value={formatCPF(form.cpf)}
-          onChange={(e) => setForm((f) => ({ ...f, cpf: e.target.value }))}
-          onBlur={() => setTouched((t) => ({ ...t, cpf: true }))}
-          placeholder="000.000.000-00"
-        />
-      </Field>
+            <Field label="CPF" error={touched.cpf ? errors.cpf : undefined}>
+              <Input
+                inputMode="numeric"
+                autoComplete="off"
+                value={formatCPF(form.cpf)}
+                onChange={(e) => setForm((f) => ({ ...f, cpf: e.target.value }))}
+                onBlur={() => setTouched((t) => ({ ...t, cpf: true }))}
+                placeholder="000.000.000-00"
+              />
+            </Field>
 
-      <Field label="E-mail" error={touched.email ? errors.email : undefined}>
-        <Input
-          type="email"
-          autoComplete="email"
-          value={form.email}
-          onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-          onBlur={() => setTouched((t) => ({ ...t, email: true }))}
-          placeholder="voce@email.com"
-        />
-      </Field>
+            <Field label="E-mail" error={touched.email ? errors.email : undefined}>
+              <Input
+                type="email"
+                autoComplete="email"
+                value={form.email}
+                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                onBlur={() => setTouched((t) => ({ ...t, email: true }))}
+                placeholder="voce@email.com"
+              />
+            </Field>
 
-      <Field label="Telefone / WhatsApp" error={touched.phone ? errors.phone : undefined}>
-        <Input
-          inputMode="numeric"
-          autoComplete="tel"
-          value={formatPhone(form.phone)}
-          onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-          onBlur={() => setTouched((t) => ({ ...t, phone: true }))}
-          placeholder="(11) 91234-5678"
-        />
-      </Field>
+            <Field label="Telefone / WhatsApp" error={touched.phone ? errors.phone : undefined}>
+              <Input
+                inputMode="numeric"
+                autoComplete="tel"
+                value={formatPhone(form.phone)}
+                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                onBlur={() => setTouched((t) => ({ ...t, phone: true }))}
+                placeholder="(11) 91234-5678"
+              />
+            </Field>
 
-      <Button
-        type="submit"
-        disabled={status === "submitting"}
-        className="mt-2 h-auto w-full justify-center rounded-full bg-[image:var(--gradient-gold)] py-3.5 text-base font-semibold text-primary-foreground hover:brightness-110"
-      >
-        {status === "submitting" ? (
-          <>
-            <Loader2 className="h-4 w-4 animate-spin" /> Gerando Pix…
-          </>
-        ) : (
-          "Gerar QR Code Pix"
-        )}
-      </Button>
+            <Button
+              type="submit"
+              disabled={status === "submitting"}
+              className="mt-2 h-auto w-full justify-center rounded-full bg-[image:var(--gradient-gold)] py-3.5 text-base font-semibold text-primary-foreground hover:brightness-110"
+            >
+              {status === "submitting" ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Gerando Pix…
+                </>
+              ) : (
+                "Gerar QR Code Pix"
+              )}
+            </Button>
 
-      <p className="text-center text-xs text-muted-foreground">
-        Seus dados são usados só pra gerar essa cobrança — nada é compartilhado com terceiros além
-        do processador de pagamento.
-      </p>
-    </form>
+            <p className="text-center text-xs text-muted-foreground">
+              Seus dados são usados só pra gerar essa cobrança — nada é compartilhado com terceiros
+              além do processador de pagamento.
+            </p>
+          </form>
+        </Step>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function Step({ children }: { children: React.ReactNode }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+    >
+      {children}
+    </motion.div>
   );
 }
 
@@ -232,13 +246,18 @@ function PixResult({
 }) {
   return (
     <div className="flex flex-col items-center gap-5 text-center">
-      <div className="rounded-2xl border border-border bg-white p-3">
+      <motion.div
+        className="rounded-2xl border border-border bg-white p-3"
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+      >
         <img
           src={`data:image/png;base64,${charge.qrCodeBase64}`}
           alt="QR Code Pix"
           className="h-52 w-52"
         />
-      </div>
+      </motion.div>
 
       <p className="max-w-xs text-sm text-muted-foreground">
         Escaneie o QR Code no app do seu banco, ou copie o código abaixo e cole na área "Pix Copia e

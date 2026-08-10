@@ -1,8 +1,12 @@
+import { motion } from "framer-motion";
+
 // Peça gráfica gerada (SVG puro, sem imagem externa) que substitui a foto
 // que ainda não existe: um mini "painel" com barras ascendentes + linha de
 // tendência, ecoando a cadeia Receita → Patrimônio que reaparece mais
 // abaixo na página. Abstrata, sem foto de pessoa nem logo de terceiros, e
 // funciona em qualquer tema porque só usa as CSS vars do design system.
+// As barras "crescem" e a linha "desenha" ao montar — só acontece uma vez,
+// não fica repetindo.
 const bars = [38, 52, 46, 68, 60, 86];
 
 export function HeroVisual() {
@@ -73,20 +77,21 @@ export function HeroVisual() {
             const y = chartH - h;
             const isLast = i === bars.length - 1;
             return (
-              <rect
+              <motion.rect
                 key={i}
                 x={x}
-                y={y}
                 width={barW}
-                height={h}
                 rx={4}
                 fill="url(#l2x-bar)"
                 opacity={isLast ? 1 : 0.45 + i * 0.06}
+                initial={{ height: 0, y: chartH }}
+                animate={{ height: h, y }}
+                transition={{ duration: 0.7, delay: 0.4 + i * 0.08, ease: [0.16, 1, 0.3, 1] }}
               />
             );
           })}
 
-          <polyline
+          <motion.polyline
             points={bars
               .map((v, i) => {
                 const h = (v / max) * (chartH - 14);
@@ -100,6 +105,9 @@ export function HeroVisual() {
             strokeWidth="2.5"
             strokeLinecap="round"
             strokeLinejoin="round"
+            initial={{ pathLength: 0, opacity: 0 }}
+            animate={{ pathLength: 1, opacity: 1 }}
+            transition={{ duration: 0.9, delay: 1, ease: "easeOut" }}
           />
         </svg>
 

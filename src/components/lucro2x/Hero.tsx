@@ -1,9 +1,20 @@
-import { eventInfo, programInfo, pricing } from "@/lib/lucro2x/config";
+import { motion, type Variants } from "framer-motion";
+import { programInfo, pricing } from "@/lib/lucro2x/config";
 import { formatBRL } from "@/lib/lucro2x/format";
 import { CtaButton } from "./CtaButton";
 import { Countdown } from "./Countdown";
+import { EarlyAccessBadge } from "./EarlyAccessBadge";
 import { HeroVisual } from "./HeroVisual";
-import { Eyebrow } from "./Section";
+
+const container: Variants = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.09, delayChildren: 0.05 } },
+};
+
+const item: Variants = {
+  hidden: { opacity: 0, y: 16 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.55, ease: [0.16, 1, 0.3, 1] } },
+};
 
 export function Hero() {
   return (
@@ -15,24 +26,38 @@ export function Hero() {
       />
 
       <div className="mx-auto grid w-full max-w-4xl items-center gap-10 px-5 pb-14 sm:px-8 sm:pb-20 lg:grid-cols-[1.1fr_0.9fr] lg:gap-14">
-        <div>
-          <Eyebrow>Continuação de {eventInfo.liveLabel} · Condição exclusiva do lançamento</Eyebrow>
+        <motion.div variants={container} initial="hidden" animate="show">
+          <motion.div variants={item}>
+            <EarlyAccessBadge />
+          </motion.div>
 
-          <p className="mt-5 text-sm font-semibold uppercase tracking-[0.2em] text-primary">
+          <motion.p
+            variants={item}
+            className="mt-5 text-sm font-semibold uppercase tracking-[0.2em] text-primary"
+          >
             {programInfo.name}
-          </p>
+          </motion.p>
 
-          <h1 className="mt-3 font-display text-4xl font-semibold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
+          <motion.h1
+            variants={item}
+            className="mt-3 font-display text-4xl font-semibold leading-[1.08] tracking-tight text-foreground sm:text-5xl"
+          >
             Transforme o lucro da sua empresa em{" "}
             <span className="gold-text">crescimento e patrimônio</span>.
-          </h1>
+          </motion.h1>
 
-          <p className="mt-5 max-w-xl text-lg leading-relaxed text-muted-foreground">
+          <motion.p
+            variants={item}
+            className="mt-5 max-w-xl text-lg leading-relaxed text-muted-foreground"
+          >
             Uma estrutura para decidir, com clareza, onde o dinheiro da empresa deve trabalhar —
             para crescer com margem e construir patrimônio fora da operação.
-          </p>
+          </motion.p>
 
-          <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center">
+          <motion.div
+            variants={item}
+            className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center"
+          >
             <CtaButton location="hero">Quero conhecer o programa</CtaButton>
             <div className="text-sm text-muted-foreground">
               Condição de lançamento
@@ -40,16 +65,21 @@ export function Hero() {
                 {formatBRL(pricing.fullPriceCents)}
               </span>
             </div>
-          </div>
+          </motion.div>
 
-          <div className="mt-6">
+          <motion.div variants={item} className="mt-6">
             <Countdown />
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
 
-        <div className="mx-auto w-full max-w-xs lg:max-w-none">
+        <motion.div
+          className="mx-auto w-full max-w-xs lg:max-w-none"
+          initial={{ opacity: 0, scale: 0.94, y: 12 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ duration: 0.7, delay: 0.25, ease: [0.16, 1, 0.3, 1] }}
+        >
           <HeroVisual />
-        </div>
+        </motion.div>
       </div>
     </section>
   );

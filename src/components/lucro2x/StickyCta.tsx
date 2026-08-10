@@ -1,3 +1,4 @@
+import { motion } from "framer-motion";
 import { pricing } from "@/lib/lucro2x/config";
 import { formatBRL } from "@/lib/lucro2x/format";
 import { CtaButton } from "./CtaButton";
@@ -7,7 +8,12 @@ import { CtaButton } from "./CtaButton";
 // sem depender de rolar até a seção de oferta.
 export function StickyCta() {
   return (
-    <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 px-4 py-3 backdrop-blur-md sm:hidden">
+    <motion.div
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 px-4 py-3 backdrop-blur-md sm:hidden"
+      initial={{ y: 80, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      transition={{ delay: 0.6, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+    >
       <div className="flex items-center justify-between gap-3">
         <div className="leading-tight">
           <p className="text-[11px] text-muted-foreground">Condição de lançamento</p>
@@ -19,6 +25,6 @@ export function StickyCta() {
           Entrar agora
         </CtaButton>
       </div>
-    </div>
+    </motion.div>
   );
 }

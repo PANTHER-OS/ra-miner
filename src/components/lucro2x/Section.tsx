@@ -1,5 +1,9 @@
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
+// Toda seção que usa esse wrapper ganha a mesma entrada suave ao rolar —
+// "once: true" pra não reanimar toda vez que a pessoa rola pra cima e
+// desce de novo (mais fluido, menos repetitivo).
 export function Section({
   id,
   className,
@@ -12,11 +16,18 @@ export function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className={cn("py-10 sm:py-14", className)}>
+    <motion.section
+      id={id}
+      className={cn("py-10 sm:py-14", className)}
+      initial={{ opacity: 0, y: 28 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-80px" }}
+      transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
+    >
       <div className={cn("mx-auto w-full max-w-4xl px-5 sm:px-8", containerClassName)}>
         {children}
       </div>
-    </section>
+    </motion.section>
   );
 }
 

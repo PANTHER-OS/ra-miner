@@ -1,3 +1,4 @@
+import { motion } from "framer-motion";
 import { PiggyBank, Settings2, TrendingUp, Users2 } from "lucide-react";
 import { pillars } from "@/lib/lucro2x/config";
 import { Section, Eyebrow } from "./Section";
@@ -18,7 +19,14 @@ export function Pillars() {
         {pillars.map((pillar, i) => {
           const Icon = icons[i];
           return (
-            <div key={pillar.number} className="hover-lift surface-card rounded-2xl p-6">
+            <motion.div
+              key={pillar.number}
+              className="hover-lift surface-card rounded-2xl p-6"
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-60px" }}
+              transition={{ duration: 0.5, delay: i * 0.1, ease: [0.16, 1, 0.3, 1] }}
+            >
               <div className="flex items-center gap-3">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
                   <Icon className="h-4.5 w-4.5" strokeWidth={1.75} />
@@ -32,7 +40,7 @@ export function Pillars() {
               <p className="mt-3 border-t border-border/70 pt-3 text-sm font-medium text-foreground/90">
                 {pillar.takeaway}
               </p>
-            </div>
+            </motion.div>
           );
         })}
       </div>
