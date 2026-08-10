@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ExplorerRouteImport } from './routes/_explorer'
+import { Route as Lucro2xRouteImport } from './routes/lucro2x'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as ExplorerIndexRouteImport } from './routes/_explorer/index'
 import { Route as ApiPublicCountriesRouteImport } from './routes/api/public/countries'
@@ -18,6 +19,11 @@ import { Route as ExplorerPaisCca2CidadeRouteImport } from './routes/_explorer/p
 
 const ExplorerRoute = ExplorerRouteImport.update({
   id: '/_explorer',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const Lucro2xRoute = Lucro2xRouteImport.update({
+  id: '/lucro2x',
+  path: '/lucro2x',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
@@ -48,12 +54,14 @@ const ExplorerPaisCca2CidadeRoute = ExplorerPaisCca2CidadeRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof ExplorerIndexRoute
+  '/lucro2x': typeof Lucro2xRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/public/countries': typeof ApiPublicCountriesRoute
   '/pais/$cca2/$cidade': typeof ExplorerPaisCca2CidadeRoute
   '/pais/$cca2/': typeof ExplorerPaisCca2IndexRoute
 }
 export interface FileRoutesByTo {
+  '/lucro2x': typeof Lucro2xRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/': typeof ExplorerIndexRoute
   '/api/public/countries': typeof ApiPublicCountriesRoute
@@ -63,6 +71,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_explorer': typeof ExplorerRouteWithChildren
+  '/lucro2x': typeof Lucro2xRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_explorer/': typeof ExplorerIndexRoute
   '/api/public/countries': typeof ApiPublicCountriesRoute
@@ -73,12 +82,14 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/lucro2x'
     | '/sitemap.xml'
     | '/api/public/countries'
     | '/pais/$cca2/$cidade'
     | '/pais/$cca2/'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/lucro2x'
     | '/sitemap.xml'
     | '/'
     | '/api/public/countries'
@@ -87,6 +98,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_explorer'
+    | '/lucro2x'
     | '/sitemap.xml'
     | '/_explorer/'
     | '/api/public/countries'
@@ -96,6 +108,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   ExplorerRoute: typeof ExplorerRouteWithChildren
+  Lucro2xRoute: typeof Lucro2xRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiPublicCountriesRoute: typeof ApiPublicCountriesRoute
 }
@@ -107,6 +120,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof ExplorerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/lucro2x': {
+      id: '/lucro2x'
+      path: '/lucro2x'
+      fullPath: '/lucro2x'
+      preLoaderRoute: typeof Lucro2xRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sitemap.xml': {
@@ -165,6 +185,7 @@ const ExplorerRouteWithChildren = ExplorerRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   ExplorerRoute: ExplorerRouteWithChildren,
+  Lucro2xRoute: Lucro2xRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiPublicCountriesRoute: ApiPublicCountriesRoute,
 }
