@@ -1,0 +1,248 @@
+.popup {
+  width: 380px;
+  max-height: 580px;
+  display: flex;
+  flex-direction: column;
+}
+
+.popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.popup-header__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.popup-header__title {
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.popup-header__status {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+.popup-header__status.is-live {
+  color: var(--emerald);
+}
+.popup-header__status.is-dom {
+  color: var(--gold);
+}
+.popup-header__status.is-off {
+  color: var(--red);
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.icon-btn:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.tabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.tab {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.tab:hover {
+  color: var(--text-primary);
+}
+.tab.is-active {
+  background: var(--emerald-dim);
+  border-color: rgba(18, 185, 129, 0.35);
+  color: var(--emerald);
+}
+
+.feed {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 220px;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 40px 28px;
+  gap: 6px;
+}
+.empty-state__glyph {
+  font-size: 30px;
+  margin-bottom: 6px;
+  filter: grayscale(0.1);
+}
+.empty-state__title {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0;
+}
+.empty-state__text {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0 0 10px;
+}
+
+.btn {
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.05s;
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn--primary {
+  background: linear-gradient(135deg, var(--emerald), var(--emerald-soft));
+  color: #071410;
+}
+.btn--primary:hover {
+  filter: brightness(1.08);
+}
+
+.finding-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.finding-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: 11px 12px;
+  box-shadow: var(--shadow-card);
+  position: relative;
+  transition: border-color 0.15s;
+}
+.finding-card:hover {
+  border-color: var(--border);
+}
+.finding-card.is-unread::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--emerald);
+}
+
+.finding-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  gap: 8px;
+}
+.finding-card__chat {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.finding-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.finding-card__body {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0 0 8px;
+}
+.finding-card__bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.finding-card__time {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+.finding-card__actions {
+  display: flex;
+  gap: 6px;
+}
+.chip-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.chip-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--emerald);
+}
+
+.popup-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.link-btn:hover {
+  color: var(--emerald);
+}

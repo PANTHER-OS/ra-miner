@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <title>Garimpo — Configurações</title>
+    <link rel="stylesheet" href="../styles/tokens.css" />
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="shell-header">
+        <img src="../icons/icon48.png" alt="" width="34" height="34" />
+        <div>
+          <h1>Garimpo</h1>
+          <p>Radar de lançamentos &amp; promoções especiais nos seus grupos de WhatsApp</p>
+        </div>
+        <span class="badge" id="status-badge">verificando…</span>
+      </header>
+
+      <section class="card">
+        <div class="card__head">
+          <h2>Grupos monitorados</h2>
+          <p>Só grupos marcados aqui entram na mineração — mantém o radar preciso, sem ruído.</p>
+        </div>
+        <div class="watchlist-toolbar">
+          <input type="text" id="chat-search" placeholder="Buscar grupo detectado…" />
+          <button class="btn btn--ghost" id="add-all">adicionar todos detectados</button>
+          <button class="btn btn--ghost" id="clear-all">limpar watchlist</button>
+        </div>
+        <label class="switch-row switch-row--emphasis">
+          <div>
+            <strong>Monitorar todos os grupos automaticamente</strong>
+            <span>Ignora a lista abaixo e aplica os filtros em qualquer grupo aberto no WhatsApp Web.</span>
+          </div>
+          <input type="checkbox" id="monitor-all" />
+          <span class="switch"></span>
+        </label>
+        <ul class="chat-list" id="chat-list"></ul>
+        <form class="manual-add" id="manual-add-form">
+          <input type="text" id="manual-add-input" placeholder="Nome exato de um grupo que ainda não apareceu na lista…" />
+          <button class="btn btn--secondary" type="submit">adicionar</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="card__head">
+          <h2>Motor de detecção</h2>
+          <p>Como decidir o que é "evento especial" e o que é promoção genérica de sempre.</p>
+        </div>
+        <label class="switch-row">
+          <div>
+            <strong>Revisar casos ambíguos com IA</strong>
+            <span>Mensagens na dúvida passam por uma checagem extra antes de virar achado. Precisa da Edge Function configurada (ver rodapé).</span>
+          </div>
+          <input type="checkbox" id="ai-enabled" />
+          <span class="switch"></span>
+        </label>
+        <label class="switch-row">
+          <div>
+            <strong>Suprimir padrões recorrentes automaticamente</strong>
+            <span>Aprende o "molde" das mensagens de cada grupo — se a mesma promoção aparece toda semana, para de contar como especial.</span>
+          </div>
+          <input type="checkbox" id="recurring-suppression" />
+          <span class="switch"></span>
+        </label>
+        <div class="slider-row">
+          <div class="slider-row__label">
+            <strong>Sensibilidade</strong>
+            <span id="sensitivity-value">55</span>
+          </div>
+          <input type="range" id="sensitivity" min="0" max="100" step="5" />
+          <div class="slider-row__scale"><span>Rígido</span><span>Equilibrado</span><span>Amplo</span></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card__head">
+          <h2>Palavras-chave</h2>
+          <p>Ajuste fino do que conta a favor ou contra um achado.</p>
+        </div>
+        <div class="keyword-columns">
+          <div class="keyword-col">
+            <h3>Incluir <span class="badge badge--emerald">sinal positivo</span></h3>
+            <div class="chips" id="include-chips"></div>
+            <form class="chip-add" data-target="include">
+              <input type="text" placeholder="adicionar palavra-chave…" />
+              <button type="submit" class="btn btn--secondary">+</button>
+            </form>
+          </div>
+          <div class="keyword-col">
+            <h3>Excluir <span class="badge badge--red">sinal de recorrência</span></h3>
+            <div class="chips" id="exclude-chips"></div>
+            <form class="chip-add" data-target="exclude">
+              <input type="text" placeholder="adicionar termo de exclusão…" />
+              <button type="submit" class="btn btn--secondary">+</button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card__head">
+          <h2>Datas especiais</h2>
+          <p>Datas do ano que devem pesar a favor de um achado (Black Friday, aniversário da marca, etc).</p>
+        </div>
+        <ul class="date-list" id="date-list"></ul>
+        <form class="date-add" id="date-add-form">
+          <input type="text" id="date-label" placeholder="Nome (ex: Aniversário da loja)" required />
+          <input type="number" id="date-day" placeholder="Dia" min="1" max="31" required />
+          <input type="number" id="date-month" placeholder="Mês" min="1" max="12" required />
+          <input type="number" id="date-window" placeholder="± dias" min="0" max="15" value="2" required />
+          <button class="btn btn--secondary" type="submit">adicionar</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="card__head">
+          <h2>Notificações</h2>
+          <p>Quando um achado deve interromper você.</p>
+        </div>
+        <label class="switch-row">
+          <div>
+            <strong>Notificação do sistema</strong>
+            <span>Um aviso nativo do navegador quando um achado de alta confiança aparecer.</span>
+          </div>
+          <input type="checkbox" id="notifications-enabled" />
+          <span class="switch"></span>
+        </label>
+        <div class="slider-row">
+          <div class="slider-row__label">
+            <strong>Confiança mínima pra notificar</strong>
+            <span id="min-confidence-value">65%</span>
+          </div>
+          <input type="range" id="min-confidence" min="0" max="100" step="5" />
+        </div>
+      </section>
+
+      <footer class="shell-footer">
+        <p>
+          A IA roda por trás de uma Edge Function própria deste projeto (a chave da Anthropic nunca fica no navegador).
+          Sem ela configurada, o Garimpo continua funcionando só com as regras locais.
+        </p>
+      </footer>
+    </div>
+
+    <div class="save-bar" id="save-bar" hidden>
+      <span>Você tem alterações não salvas</span>
+      <button class="btn btn--primary" id="save-btn">Salvar alterações</button>
+    </div>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

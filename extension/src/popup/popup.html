@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <title>Garimpo</title>
+    <link rel="stylesheet" href="../styles/tokens.css" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="popup">
+      <header class="popup-header">
+        <div class="popup-header__brand">
+          <img src="../icons/icon32.png" alt="" width="22" height="22" />
+          <div>
+            <div class="popup-header__title">Garimpo</div>
+            <div class="popup-header__status" id="bridge-status">verificando conexão…</div>
+          </div>
+        </div>
+        <button class="icon-btn" id="open-options" title="Configurações" aria-label="Configurações">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <circle cx="12" cy="12" r="3.2" />
+            <path
+              d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.3.7a7.6 7.6 0 0 0-1.7-1L15 3h-4l-.4 2.3a7.6 7.6 0 0 0-1.7 1l-2.3-.7-2 3.4 2 1.5a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.3-.7a7.6 7.6 0 0 0 1.7 1L11 21h4l.4-2.3a7.6 7.6 0 0 0 1.7-1l2.3.7 2-3.4-2-1.5Z"
+            />
+          </svg>
+        </button>
+      </header>
+
+      <nav class="tabs" id="tabs">
+        <button class="tab is-active" data-filter="all">Tudo</button>
+        <button class="tab" data-filter="lancamento">Lançamentos</button>
+        <button class="tab" data-filter="promocao_especial">Promoções</button>
+      </nav>
+
+      <main class="feed" id="feed">
+        <div class="empty-state" id="empty-state">
+          <div class="empty-state__glyph">💎</div>
+          <p class="empty-state__title">Nenhum achado ainda</p>
+          <p class="empty-state__text">
+            Adicione grupos na sua watchlist nas configurações e deixe o WhatsApp Web aberto numa aba — assim que um
+            lançamento ou promoção especial aparecer, ele cai aqui.
+          </p>
+          <button class="btn btn--primary" id="empty-cta">Configurar watchlist</button>
+        </div>
+        <ul class="finding-list" id="finding-list" hidden></ul>
+      </main>
+
+      <footer class="popup-footer">
+        <span id="footer-count">0 achados</span>
+        <button class="link-btn" id="mark-all-read">marcar tudo como lido</button>
+      </footer>
+    </div>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

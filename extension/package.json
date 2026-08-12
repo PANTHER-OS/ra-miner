@@ -1,0 +1,18 @@
+{
+  "name": "garimpo-whatsapp-extension",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Extensão de navegador que minera grupos de WhatsApp em busca de lançamentos e promoções especiais de dia único.",
+  "type": "module",
+  "scripts": {
+    "icons": "node scripts/generate-icons.mjs",
+    "build": "node esbuild.config.mjs && node scripts/copy-static.mjs",
+    "dev": "node esbuild.config.mjs --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.8.3"
+  }
+}
