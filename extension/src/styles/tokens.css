@@ -35,6 +35,14 @@
   box-sizing: border-box;
 }
 
+/* Sem isso, o atributo `hidden` perde pra qualquer classe que já defina
+   `display` explicitamente (mesma especificidade, e a folha de estilo do
+   autor vence a padrão do navegador) — elementos "escondidos" continuavam
+   sendo renderizados junto com o conteúdo visível. */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background: var(--bg);

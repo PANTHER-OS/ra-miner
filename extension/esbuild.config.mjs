@@ -8,6 +8,7 @@ const watch = process.argv.includes("--watch");
 const entryPoints = {
   "background/service-worker": "src/background/service-worker.ts",
   "content/content-script": "src/content/content-script.ts",
+  "content/ads-content-script": "src/content/ads-content-script.ts",
   "inject/wa-bridge": "src/inject/wa-bridge.ts",
   "popup/popup": "src/popup/popup.ts",
   "options/options": "src/options/options.ts",

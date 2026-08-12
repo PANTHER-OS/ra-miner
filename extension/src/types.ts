@@ -27,9 +27,11 @@ export interface WatchedGroup {
 
 export type FindingCategory = "lancamento" | "promocao_especial";
 export type ConfidenceSource = "regras" | "ia" | "regras+ia";
+export type FindingOrigin = "whatsapp" | "ads";
 
 export interface Finding {
   id: string;
+  /** grupo/chat de origem (WhatsApp) ou nome do anunciante (Biblioteca de Anúncios) */
   chatId: string;
   chatName: string;
   messageId: string;
@@ -45,6 +47,13 @@ export interface Finding {
   reason?: string;
   read: boolean;
   dismissed: boolean;
+  /** de onde veio o achado — grupo de WhatsApp já monitorado, ou anúncio achado na Biblioteca */
+  origin: FindingOrigin;
+  /** só quando origin === "ads": link direto pro grupo de WhatsApp anunciado, se achado */
+  groupLink?: string;
+  /** só quando origin === "ads": nome de quem anuncia e o ID da biblioteca de anúncios */
+  advertiser?: string;
+  adLibraryId?: string;
 }
 
 export interface SpecialDate {
@@ -141,12 +150,26 @@ export const DEFAULT_SETTINGS: Settings = {
   recurringSuppressionEnabled: true,
 };
 
+/** Anúncio cru, do jeito que sai da varredura da Biblioteca de Anúncios (Meta). */
+export interface RawAd {
+  /** "Identificação da biblioteca" — único, estável, usado pra dedupe */
+  adLibraryId: string;
+  advertiser: string;
+  body: string;
+  /** links de WhatsApp achados no card/detalhe do anúncio (chat.whatsapp.com, wa.me, api.whatsapp.com/send) */
+  whatsappLinks: string[];
+  /** o anúncio mostrava o ícone de WhatsApp entre as plataformas veiculadas */
+  hasWhatsAppPlatformIcon: boolean;
+  pageUrl: string;
+}
+
 // ---- Mensagens de runtime (content script <-> background <-> popup/options) ----
 
 export type RuntimeMessage =
   | { kind: "wa:new-message"; message: RawMessage }
   | { kind: "wa:chat-list"; chats: { chatId: string; name: string; isGroup: boolean }[] }
   | { kind: "wa:bridge-status"; mode: "store" | "dom" | "unavailable" }
+  | { kind: "ads:new-ad"; ad: RawAd }
   | { kind: "get-findings"; unreadOnly?: boolean }
   | { kind: "mark-read"; findingId: string }
   | { kind: "dismiss-finding"; findingId: string }

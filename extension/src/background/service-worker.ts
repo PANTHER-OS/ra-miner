@@ -1,8 +1,10 @@
 // Service worker (background). É aqui que a decisão final acontece: recebe
-// mensagens cruas do content script, roda o motor de regras, decide quando
+// dados crus dos content scripts (grupos de WhatsApp e/ou anúncios da
+// Biblioteca), roda o motor de regras certo pra cada origem, decide quando
 // vale a pena perguntar pra IA, grava achados e cuida do badge/notificação.
-import type { ClassifyCandidate, Finding, RawMessage, RuntimeMessage, Settings, WatchedGroup } from "../types";
+import type { ClassifyCandidate, Finding, FindingOrigin, RawAd, RawMessage, RuntimeMessage, WatchedGroup } from "../types";
 import { scoreMessage } from "../lib/rules-engine";
+import { scoreAd } from "../lib/ads-rules";
 import { classifyBatch } from "../lib/classifier-client";
 import { hashTemplate, normalizeTemplate } from "../lib/template";
 import {
@@ -22,11 +24,13 @@ import {
 
 let bridgeStatus: "store" | "dom" | "unavailable" | "pending" = "pending";
 
+type FindingBase = Omit<Finding, "score" | "category" | "matchedKeywords" | "confidenceSource" | "reason" | "detectedAt" | "read" | "dismissed">;
+
 // ---- Fila de candidatos ambíguos pra revisão em lote pela IA ----
 
 interface PendingCandidate {
   candidate: ClassifyCandidate;
-  message: RawMessage;
+  base: FindingBase;
 }
 
 let pendingQueue: PendingCandidate[] = [];
@@ -34,8 +38,8 @@ let flushTimer: ReturnType<typeof setTimeout> | null = null;
 const BATCH_MAX = 10;
 const BATCH_DEBOUNCE_MS = 2500;
 
-function queueForAi(candidate: ClassifyCandidate, message: RawMessage) {
-  pendingQueue.push({ candidate, message });
+function queueForAi(candidate: ClassifyCandidate, base: FindingBase) {
+  pendingQueue.push({ candidate, base });
   if (pendingQueue.length >= BATCH_MAX) {
     flushQueue();
     return;
@@ -61,10 +65,11 @@ async function flushQueue() {
   const verdictById = new Map(verdicts.map((v) => [v.id, v]));
   const aiBar = Math.max(40, settings.minConfidenceForNotification - 15);
 
-  for (const { candidate, message } of batch) {
+  for (const { candidate, base } of batch) {
     const verdict = verdictById.get(candidate.id);
     if (!verdict || !verdict.isSpecialEvent || verdict.confidence < aiBar) continue;
-    await createFinding(message, {
+    await createFinding({
+      ...base,
       score: verdict.confidence,
       category: verdict.category ?? "promocao_especial",
       matchedKeywords: candidate.matchedKeywords,
@@ -77,37 +82,27 @@ async function flushQueue() {
 // ---- Criação de achado + badge + notificação ----
 
 async function createFinding(
-  message: RawMessage,
-  extra: { score: number; category: Finding["category"]; matchedKeywords: string[]; confidenceSource: Finding["confidenceSource"]; reason?: string; specialDateLabel?: string },
+  finding: FindingBase & { score: number; category: Finding["category"]; matchedKeywords: string[]; confidenceSource: Finding["confidenceSource"]; reason?: string },
 ) {
-  const finding: Finding = {
-    id: `${message.chatId}:${message.id}`,
-    chatId: message.chatId,
-    chatName: message.chatName,
-    messageId: message.id,
-    body: message.body,
-    timestamp: message.timestamp,
+  const full: Finding = {
+    ...finding,
+    score: Math.round(finding.score),
     detectedAt: Date.now(),
-    category: extra.category,
-    score: Math.round(extra.score),
-    confidenceSource: extra.confidenceSource,
-    matchedKeywords: extra.matchedKeywords,
-    specialDateLabel: extra.specialDateLabel,
-    reason: extra.reason,
     read: false,
     dismissed: false,
   };
-  await addFinding(finding);
+  await addFinding(full);
   await refreshBadge();
 
   const settings = await getSettings();
-  if (settings.notificationsEnabled && finding.score >= settings.minConfidenceForNotification) {
-    const label = finding.category === "lancamento" ? "🚀 Lançamento" : "💎 Promoção especial";
-    chrome.notifications.create(finding.id, {
+  if (settings.notificationsEnabled && full.score >= settings.minConfidenceForNotification) {
+    const label = full.category === "lancamento" ? "🚀 Lançamento" : "💎 Promoção especial";
+    const originTag = full.origin === "ads" ? " (Biblioteca de Anúncios)" : "";
+    chrome.notifications.create(full.id, {
       type: "basic",
       iconUrl: chrome.runtime.getURL("icons/icon128.png"),
-      title: `${label} — ${finding.chatName}`,
-      message: finding.body.slice(0, 180),
+      title: `${label} — ${full.chatName}${originTag}`,
+      message: full.body.slice(0, 180),
       priority: 1,
     });
   }
@@ -144,23 +139,54 @@ async function handleNewMessage(message: RawMessage) {
 
   if (result.decision === "ignorar") return;
 
+  const base: FindingBase = {
+    id: `${message.chatId}:${message.id}`,
+    chatId: message.chatId,
+    chatName: message.chatName,
+    messageId: message.id,
+    body: message.body,
+    timestamp: message.timestamp,
+    origin: "whatsapp",
+    specialDateLabel: result.specialDateLabel,
+  };
+
   if (result.decision === "aceitar") {
-    await createFinding(message, {
-      score: result.score,
-      category: result.category,
-      matchedKeywords: result.matchedKeywords,
-      confidenceSource: "regras",
-      reason: result.reason,
-      specialDateLabel: result.specialDateLabel,
-    });
+    await createFinding({ ...base, score: result.score, category: result.category, matchedKeywords: result.matchedKeywords, confidenceSource: "regras", reason: result.reason });
     return;
   }
 
   // revisar-com-ia
-  queueForAi(
-    { id: `${message.chatId}:${message.id}`, chatName: message.chatName, body: message.body, ruleScore: result.score, matchedKeywords: result.matchedKeywords },
-    message,
-  );
+  queueForAi({ id: base.id, chatName: message.chatName, body: message.body, ruleScore: result.score, matchedKeywords: result.matchedKeywords }, base);
+}
+
+async function handleNewAd(ad: RawAd) {
+  const seenKey = `ad:${ad.adLibraryId}`;
+  if (await hasSeen(seenKey)) return;
+  await markSeen(seenKey);
+
+  const settings = await getSettings();
+  const result = scoreAd(ad, settings);
+  if (result.decision === "ignorar") return;
+
+  const base: FindingBase = {
+    id: seenKey,
+    chatId: `ad:${ad.advertiser}`,
+    chatName: ad.advertiser,
+    messageId: ad.adLibraryId,
+    body: ad.body,
+    timestamp: Date.now(),
+    origin: "ads" as FindingOrigin,
+    groupLink: ad.whatsappLinks[0],
+    advertiser: ad.advertiser,
+    adLibraryId: ad.adLibraryId,
+  };
+
+  if (result.decision === "aceitar") {
+    await createFinding({ ...base, score: result.score, category: result.category, matchedKeywords: result.matchedKeywords, confidenceSource: "regras", reason: result.reason });
+    return;
+  }
+
+  queueForAi({ id: base.id, chatName: ad.advertiser, body: ad.body, ruleScore: result.score, matchedKeywords: result.matchedKeywords }, base);
 }
 
 // ---- Roteamento de mensagens de runtime ----
@@ -178,6 +204,10 @@ chrome.runtime.onMessage.addListener((msg: RuntimeMessage, _sender, sendResponse
         break;
       case "wa:bridge-status":
         bridgeStatus = msg.mode;
+        sendResponse({ ok: true });
+        break;
+      case "ads:new-ad":
+        await handleNewAd(msg.ad);
         sendResponse({ ok: true });
         break;
       case "get-findings": {

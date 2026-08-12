@@ -224,6 +224,14 @@
   color: var(--text-primary);
   border-color: var(--emerald);
 }
+.chip-btn--primary {
+  background: var(--emerald-dim);
+  border-color: rgba(18, 185, 129, 0.35);
+  color: var(--emerald);
+}
+.chip-btn--primary:hover {
+  border-color: var(--emerald);
+}
 
 .popup-footer {
   display: flex;

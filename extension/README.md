@@ -1,15 +1,26 @@
-# Garimpo — radar de lançamentos & promoções especiais (WhatsApp)
+# Garimpo — radar de lançamentos & promoções especiais (WhatsApp + Biblioteca de Anúncios)
 
-Extensão de navegador (Manifest V3) que minera **os seus grupos de WhatsApp**
-em busca de duas coisas, e só delas:
+Extensão de navegador (Manifest V3) que minera duas fontes em busca de duas
+coisas, e só delas:
 
 - **Lançamentos** — produto/serviço/turma novo saindo.
 - **Promoções especiais de dia único** — Black Friday, aniversário da marca,
   condição exclusiva por tempo limitado.
 
+Fontes:
+
+1. **Seus grupos de WhatsApp** — monitora os grupos que você escolher (ou
+   todos), lendo as mensagens que já chegam pra você.
+2. **Biblioteca de Anúncios (Facebook/Instagram)** — enquanto você navega
+   em `facebook.com/ads/library`, identifica anúncios que divulgam um link
+   de grupo de WhatsApp (`chat.whatsapp.com`, `wa.me`) e que batem com o
+   perfil de lançamento/promoção especial — assim você descobre grupos
+   novos pra entrar, antes mesmo de participar deles.
+
 Promoção genérica que se repete toda semana/todo mês é filtrada de propósito
-— o motor de regras aprende o "molde" das mensagens de cada grupo e suprime
-o que reconhece como rotina.
+— o motor de regras aprende o "molde" das mensagens de cada grupo (e aplica
+as mesmas palavras-chave nos anúncios) pra suprimir o que reconhece como
+rotina.
 
 ## ⚠️ Leia antes de instalar
 
@@ -62,13 +73,24 @@ qualquer momento).
 
 ## Como usar
 
+**WhatsApp:**
 1. Abra `web.whatsapp.com` numa aba e mantenha logado.
 2. Clique no ícone da extensão → engrenagem → **Configurações**.
 3. Em **Grupos monitorados**, marque os grupos que quer garimpar (ou ligue
    "monitorar todos automaticamente").
-4. Ajuste palavras-chave, datas especiais do seu nicho e sensibilidade.
-5. Achados aparecem no popup, com badge de contagem no ícone da extensão e
-   notificação do sistema pros de maior confiança.
+
+**Biblioteca de Anúncios:**
+1. Navegue normalmente em `facebook.com/ads/library` (com filtro de país
+   e palavra-chave do seu nicho, por exemplo).
+2. Deixe a aba aberta um pouco enquanto rola os resultados — a extensão
+   varre os cards já carregados na tela.
+3. Achados com link de grupo aparecem na aba **Anúncios** do popup, com
+   botão **"entrar no grupo"** direto.
+
+**Em ambos:** ajuste palavras-chave, datas especiais do seu nicho e
+sensibilidade nas Configurações (vale pras duas fontes). Achados aparecem
+no popup, com badge de contagem no ícone da extensão e notificação do
+sistema pros de maior confiança.
 
 Tudo fica salvo só localmente no seu navegador (`chrome.storage.local`) —
 nada é sincronizado pra fora.
@@ -79,12 +101,13 @@ nada é sincronizado pra fora.
 extension/
   manifest.json
   src/
-    inject/wa-bridge.ts        # MAIN world — hook na Store interna do WhatsApp Web
-    content/content-script.ts  # isolated world — ponte + fallback DOM
-    background/service-worker.ts # regras, fila de IA, achados, badge, notificação
-    lib/                        # rules-engine, storage, dates, template, classifier-client
-    popup/, options/            # UI
-supabase/functions/whatsapp-classify/  # proxy stateless pra Anthropic
+    inject/wa-bridge.ts            # MAIN world — hook na Store interna do WhatsApp Web
+    content/content-script.ts      # isolated world — ponte + fallback DOM (WhatsApp)
+    content/ads-content-script.ts  # varredura da Biblioteca de Anúncios
+    background/service-worker.ts   # regras, fila de IA, achados, badge, notificação
+    lib/                            # rules-engine, ads-rules, storage, dates, template, classifier-client
+    popup/, options/                # UI
+supabase/functions/whatsapp-classify/  # proxy stateless pra Anthropic (usado pelas duas fontes)
 ```
 
 ## Build
