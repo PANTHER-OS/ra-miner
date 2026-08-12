@@ -22,7 +22,19 @@ const matchWhatsAppLinks = (s: string) => s.match(new RegExp(WHATSAPP_LINK_SRC, 
 const processedIds = new Set<string>();
 const cardByAdId = new Map<string, HTMLElement>();
 let relevantCount = 0;
+let scannedCount = 0;
 let hideIrrelevant = false;
+
+interface DebugEntry {
+  advertiser: string;
+  snippet: string;
+  whatsappSignal: boolean;
+  score: number;
+  matchedKeywords: string[];
+  relevant: boolean;
+}
+const debugLog: DebugEntry[] = [];
+const DEBUG_LOG_MAX = 15;
 
 function send(msg: RuntimeMessage): Promise<any> {
   try {
@@ -66,10 +78,24 @@ function injectStyleOnce() {
       background: #121917; border: 1px solid #223029; color: #eef3f0;
       font: 12.5px -apple-system, Segoe UI, Roboto, sans-serif;
       border-radius: 12px; padding: 10px 14px; box-shadow: 0 8px 24px -8px rgba(0,0,0,.6);
-      display: flex; align-items: center; gap: 10px;
+      max-width: 420px;
     }
+    #garimpo-panel-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     #garimpo-panel strong { color: #12b981; }
     #garimpo-panel label { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+    #garimpo-panel button {
+      background: #1a2420; border: 1px solid #223029; color: #a9b8b1; border-radius: 6px;
+      padding: 4px 9px; font: 700 11px -apple-system, Segoe UI, Roboto, sans-serif; cursor: pointer;
+    }
+    #garimpo-panel button:hover { color: #eef3f0; border-color: #12b981; }
+    #garimpo-debug {
+      margin-top: 10px; padding-top: 10px; border-top: 1px solid #223029;
+      max-height: 260px; overflow-y: auto; font-size: 11px; color: #a9b8b1;
+    }
+    #garimpo-debug .g-row { padding: 5px 0; border-bottom: 1px solid #1a2420; }
+    #garimpo-debug .g-adv { color: #eef3f0; font-weight: 700; }
+    #garimpo-debug .g-yes { color: #12b981; }
+    #garimpo-debug .g-no { color: #e5675f; }
   `;
   document.head.appendChild(style);
 }
@@ -79,19 +105,58 @@ function injectPanelOnce() {
   const panel = document.createElement("div");
   panel.id = "garimpo-panel";
   panel.innerHTML = `
-    💎 <span>Garimpo: <strong id="garimpo-count">0</strong> relevante(s)</span>
-    <label><input type="checkbox" id="garimpo-hide-toggle" /> só relevantes</label>
+    <div id="garimpo-panel-row">
+      💎 <span>Garimpo: <strong id="garimpo-scanned">0</strong> varrido(s) · <strong id="garimpo-count">0</strong> relevante(s)</span>
+      <label><input type="checkbox" id="garimpo-hide-toggle" /> só relevantes</label>
+      <button id="garimpo-diag-btn" type="button">diagnóstico</button>
+    </div>
+    <div id="garimpo-debug" hidden></div>
   `;
   document.body.appendChild(panel);
   document.getElementById("garimpo-hide-toggle")!.addEventListener("change", (e) => {
     hideIrrelevant = (e.target as HTMLInputElement).checked;
     applyDimming();
   });
+  document.getElementById("garimpo-diag-btn")!.addEventListener("click", () => {
+    const el = document.getElementById("garimpo-debug")!;
+    el.hidden = !el.hidden;
+    renderDebugLog();
+  });
 }
 
 function updateCounter() {
-  const el = document.getElementById("garimpo-count");
-  if (el) el.textContent = String(relevantCount);
+  const scannedEl = document.getElementById("garimpo-scanned");
+  const countEl = document.getElementById("garimpo-count");
+  if (scannedEl) scannedEl.textContent = String(scannedCount);
+  if (countEl) countEl.textContent = String(relevantCount);
+}
+
+function renderDebugLog() {
+  const el = document.getElementById("garimpo-debug");
+  if (!el || el.hidden) return;
+  if (debugLog.length === 0) {
+    el.innerHTML = `<div class="g-row">Nada varrido ainda. Se esse número nunca sair de 0 rolando a página, me manda um print — o problema está na detecção dos cards.</div>`;
+    return;
+  }
+  el.innerHTML = debugLog
+    .slice()
+    .reverse()
+    .map(
+      (d) => `<div class="g-row">
+        <span class="g-adv">${escapeHtmlLocal(d.advertiser)}</span> —
+        score ${d.score}% · ${d.relevant ? '<span class="g-yes">relevante</span>' : '<span class="g-no">não relevante</span>'} ·
+        WhatsApp: ${d.whatsappSignal ? '<span class="g-yes">sim</span>' : '<span class="g-no">não</span>'} ·
+        palavras: ${d.matchedKeywords.length ? escapeHtmlLocal(d.matchedKeywords.join(", ")) : "nenhuma"}<br/>
+        <span style="opacity:.7">${escapeHtmlLocal(d.snippet)}</span>
+      </div>`,
+    )
+    .join("");
+}
+
+function escapeHtmlLocal(s: string): string {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
 }
 
 function applyDimming() {
@@ -161,17 +226,32 @@ async function scanCard(card: HTMLElement) {
   const whatsappLinks = Array.from(new Set([...whatsappLinksFromHrefs, ...whatsappLinksFromText]));
   const hasWhatsAppPlatformIcon = Boolean(card.querySelector('img[alt*="WhatsApp" i], svg[aria-label*="WhatsApp" i]'));
 
+  const advertiser = extractAdvertiser(card);
   const ad: RawAd = {
     adLibraryId,
-    advertiser: extractAdvertiser(card),
+    advertiser,
     body: fullText.slice(0, 1200),
     whatsappLinks,
     hasWhatsAppPlatformIcon,
     pageUrl: location.href,
   };
 
+  scannedCount++;
+  updateCounter();
+
   try {
     const verdict = (await send({ kind: "ads:new-ad", ad })) as AdVerdict | undefined;
+    debugLog.push({
+      advertiser,
+      snippet: fullText.slice(0, 140).replace(/\s+/g, " "),
+      whatsappSignal: whatsappLinks.length > 0 || hasWhatsAppPlatformIcon,
+      score: verdict?.score ?? 0,
+      matchedKeywords: verdict?.matchedKeywords ?? [],
+      relevant: Boolean(verdict?.relevant),
+    });
+    if (debugLog.length > DEBUG_LOG_MAX) debugLog.shift();
+    renderDebugLog();
+
     if (verdict?.relevant) {
       highlightCard(card, verdict);
       applyDimming();
