@@ -2,7 +2,12 @@
 // dados crus dos content scripts (grupos de WhatsApp e/ou anúncios da
 // Biblioteca), roda o motor de regras certo pra cada origem, decide quando
 // vale a pena perguntar pra IA, grava achados e cuida do badge/notificação.
-import type { ClassifyCandidate, Finding, FindingOrigin, RawAd, RawMessage, RuntimeMessage, WatchedGroup } from "../types";
+//
+// A Biblioteca de Anúncios é tratada à parte dos grupos de WhatsApp: a
+// decisão é só por regras (sem fila de IA) e a resposta volta na hora pro
+// content script marcar o card na própria página do Facebook — não vira
+// Finding, não aparece no popup, não notifica (é assim que foi pedido).
+import type { ClassifyCandidate, Finding, RawAd, RawMessage, RuntimeMessage, WatchedGroup } from "../types";
 import { scoreMessage } from "../lib/rules-engine";
 import { scoreAd } from "../lib/ads-rules";
 import { classifyBatch } from "../lib/classifier-client";
@@ -160,33 +165,10 @@ async function handleNewMessage(message: RawMessage) {
 }
 
 async function handleNewAd(ad: RawAd) {
-  const seenKey = `ad:${ad.adLibraryId}`;
-  if (await hasSeen(seenKey)) return;
-  await markSeen(seenKey);
-
   const settings = await getSettings();
-  const result = scoreAd(ad, settings);
-  if (result.decision === "ignorar") return;
-
-  const base: FindingBase = {
-    id: seenKey,
-    chatId: `ad:${ad.advertiser}`,
-    chatName: ad.advertiser,
-    messageId: ad.adLibraryId,
-    body: ad.body,
-    timestamp: Date.now(),
-    origin: "ads" as FindingOrigin,
-    groupLink: ad.whatsappLinks[0],
-    advertiser: ad.advertiser,
-    adLibraryId: ad.adLibraryId,
-  };
-
-  if (result.decision === "aceitar") {
-    await createFinding({ ...base, score: result.score, category: result.category, matchedKeywords: result.matchedKeywords, confidenceSource: "regras", reason: result.reason });
-    return;
-  }
-
-  queueForAi({ id: base.id, chatName: ad.advertiser, body: ad.body, ruleScore: result.score, matchedKeywords: result.matchedKeywords }, base);
+  // Decisão síncrona, só regras — a resposta volta na hora pro content
+  // script decidir se marca o card ali mesmo na página.
+  return scoreAd(ad, settings);
 }
 
 // ---- Roteamento de mensagens de runtime ----
@@ -207,8 +189,7 @@ chrome.runtime.onMessage.addListener((msg: RuntimeMessage, _sender, sendResponse
         sendResponse({ ok: true });
         break;
       case "ads:new-ad":
-        await handleNewAd(msg.ad);
-        sendResponse({ ok: true });
+        sendResponse(await handleNewAd(msg.ad));
         break;
       case "get-findings": {
         const findings = await getFindings();

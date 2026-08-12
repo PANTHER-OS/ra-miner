@@ -1,6 +1,6 @@
 import type { Finding, FindingCategory, RuntimeMessage } from "../types";
 
-type Filter = "all" | FindingCategory | "ads";
+type Filter = "all" | FindingCategory;
 
 let findings: Finding[] = [];
 let activeFilter: Filter = "all";
@@ -49,22 +49,8 @@ function sourceBadge(f: Finding): string {
   return `<span class="badge badge--muted">${f.score}% · ${label}</span>`;
 }
 
-function originBadge(f: Finding): string {
-  return (f.origin ?? "whatsapp") === "ads" ? `<span class="badge badge--muted">📢 Biblioteca de Anúncios</span>` : "";
-}
-
-function adPermalink(f: Finding): string | null {
-  if ((f.origin ?? "whatsapp") !== "ads" || !f.adLibraryId) return null;
-  return `https://www.facebook.com/ads/library/?id=${encodeURIComponent(f.adLibraryId)}`;
-}
-
 function renderFeed() {
-  const visible = findings.filter((f) => {
-    if (f.dismissed) return false;
-    if (activeFilter === "all") return true;
-    if (activeFilter === "ads") return (f.origin ?? "whatsapp") === "ads";
-    return f.category === activeFilter;
-  });
+  const visible = findings.filter((f) => !f.dismissed && (activeFilter === "all" || f.category === activeFilter));
   footerCountEl.textContent = `${findings.filter((f) => !f.dismissed).length} achado(s)`;
 
   if (visible.length === 0) {
@@ -76,29 +62,23 @@ function renderFeed() {
   feedEl.hidden = false;
 
   feedEl.innerHTML = visible
-    .map((f) => {
-      const isAd = (f.origin ?? "whatsapp") === "ads";
-      const permalink = adPermalink(f);
-      const actions = isAd
-        ? `${f.groupLink ? `<button class="chip-btn chip-btn--primary" data-action="open-link" data-href="${escapeHtml(f.groupLink)}">entrar no grupo</button>` : ""}${
-            permalink ? `<button class="chip-btn" data-action="open-link" data-href="${escapeHtml(permalink)}">ver anúncio</button>` : ""
-          }<button class="chip-btn" data-action="dismiss">descartar</button>`
-        : `<button class="chip-btn" data-action="open">abrir</button><button class="chip-btn" data-action="dismiss">descartar</button>`;
-
-      return `
+    .map(
+      (f) => `
     <li class="finding-card ${!f.read ? "is-unread" : ""}" data-id="${f.id}">
       <div class="finding-card__top">
         <span class="finding-card__chat">${escapeHtml(f.chatName)}</span>
         <div class="finding-card__meta">${categoryBadge(f)}${sourceBadge(f)}</div>
       </div>
-      ${isAd ? `<div style="margin-bottom:4px">${originBadge(f)}</div>` : ""}
       <p class="finding-card__body">${escapeHtml(f.body)}</p>
       <div class="finding-card__bottom">
         <span class="finding-card__time">${relativeTime(f.timestamp)}${f.specialDateLabel ? ` · ${escapeHtml(f.specialDateLabel)}` : ""}</span>
-        <div class="finding-card__actions">${actions}</div>
+        <div class="finding-card__actions">
+          <button class="chip-btn" data-action="open">abrir</button>
+          <button class="chip-btn" data-action="dismiss">descartar</button>
+        </div>
       </div>
-    </li>`;
-    })
+    </li>`,
+    )
     .join("");
 }
 
@@ -122,10 +102,6 @@ feedEl.addEventListener("click", async (e) => {
   } else if (action === "open") {
     await send({ kind: "mark-read", findingId: id });
     chrome.tabs.create({ url: "https://web.whatsapp.com/" });
-  } else if (action === "open-link") {
-    await send({ kind: "mark-read", findingId: id });
-    const href = target.dataset.href;
-    if (href) chrome.tabs.create({ url: href });
   }
 });
 

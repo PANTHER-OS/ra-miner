@@ -12,10 +12,13 @@ Fontes:
 1. **Seus grupos de WhatsApp** — monitora os grupos que você escolher (ou
    todos), lendo as mensagens que já chegam pra você.
 2. **Biblioteca de Anúncios (Facebook/Instagram)** — enquanto você navega
-   em `facebook.com/ads/library`, identifica anúncios que divulgam um link
-   de grupo de WhatsApp (`chat.whatsapp.com`, `wa.me`) e que batem com o
-   perfil de lançamento/promoção especial — assim você descobre grupos
-   novos pra entrar, antes mesmo de participar deles.
+   em `facebook.com/ads/library` do seu jeito normal (busca, filtro,
+   scroll), a extensão marca **direto em cima dos anúncios na própria
+   página** os que batem com as suas palavras-chave — borda verde, selo
+   e, quando o anúncio expõe um link de grupo (`chat.whatsapp.com`,
+   `wa.me`), um botão "Entrar no grupo". Não abre popup nem lista em
+   lugar nenhum — a marcação acontece ali, na Biblioteca, e some se você
+   recarregar a página.
 
 Promoção genérica que se repete toda semana/todo mês é filtrada de propósito
 — o motor de regras aprende o "molde" das mensagens de cada grupo (e aplica
@@ -82,15 +85,21 @@ qualquer momento).
 **Biblioteca de Anúncios:**
 1. Navegue normalmente em `facebook.com/ads/library` (com filtro de país
    e palavra-chave do seu nicho, por exemplo).
-2. Deixe a aba aberta um pouco enquanto rola os resultados — a extensão
-   varre os cards já carregados na tela.
-3. Achados com link de grupo aparecem na aba **Anúncios** do popup, com
-   botão **"entrar no grupo"** direto.
+2. Role os resultados como sempre fez — a extensão vai marcando os cards
+   relevantes com borda verde e selo conforme eles aparecem na tela.
+3. Um painel pequeno no canto inferior direito mostra quantos achados tem
+   na tela e tem um botão "só relevantes" que esconde o resto.
+4. Quando o anúncio expõe o link do grupo, aparece um botão verde
+   "Entrar no grupo" direto no card — sem precisar abrir mais nada.
 
-**Em ambos:** ajuste palavras-chave, datas especiais do seu nicho e
-sensibilidade nas Configurações (vale pras duas fontes). Achados aparecem
-no popup, com badge de contagem no ícone da extensão e notificação do
-sistema pros de maior confiança.
+Essa parte não usa IA nem passa pelo popup — é decisão instantânea,
+100% local, baseada só nas palavras-chave e na sensibilidade que você
+configurar.
+
+**WhatsApp:** ajuste palavras-chave, datas especiais do seu nicho e
+sensibilidade nas Configurações (vale pras duas fontes). Achados dos
+grupos aparecem no popup, com badge de contagem no ícone da extensão e
+notificação do sistema pros de maior confiança.
 
 Tudo fica salvo só localmente no seu navegador (`chrome.storage.local`) —
 nada é sincronizado pra fora.
