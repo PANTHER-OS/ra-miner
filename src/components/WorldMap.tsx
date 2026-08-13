@@ -19,7 +19,6 @@ import {
   computeCountryLabel,
   geometryToPath,
   pointInPolygonRing,
-  APPROX_CHAR_WIDTH_FACTOR,
   type CountryLabelLayout,
   type GeoGeometry,
 } from "@/lib/countryLabels";
@@ -713,20 +712,30 @@ function WorldMapInner({
   }, [center, zoom, missingCountryPins, touchTarget, svgUnitsPerScreenPx, sizeScale]);
 
   // Rótulos de país (nome sobre o próprio território) prontos pra desenhar
-  // NESTE zoom: filtra quem é grande o bastante pra ler (screen cap + piso
-  // de legibilidade, ver constantes no topo) e resolve colisão entre
-  // vizinhos — sem isso, um país grande do lado de um médio (ex: Argélia e
-  // Líbia, Mali e Níger) tinha os dois nomes escritos um em cima do outro.
-  // Prioridade de espaço: quem nasceria maior na tela primeiro — os que não
-  // cabem do lado de um vizinho já aceito simplesmente não aparecem NESTE
-  // zoom (igual ao declutter dos rótulos de cidade acima), e voltam a
-  // caber sozinhos assim que a pessoa aproximar mais.
+  // NESTE zoom: só filtra quem é grande o bastante pra ler (screen cap +
+  // piso de legibilidade, ver constantes no topo) — TODO país que passa
+  // nesse teste ganha seu nome, sem exceção nenhuma, mesmo espremido entre
+  // vizinhos grandes (Armênia entre Azerbaijão e Turquia, Turquemenistão
+  // do lado do Uzbequistão, El Salvador entre Honduras e o Pacífico...).
+  //
+  // ANTES havia também um passo de "colisão" que escondia por completo o
+  // nome do país menor sempre que ele ficava perto demais do de um vizinho
+  // maior/mais vistoso — só que numa lista de quase 250 países, SEMPRE tem
+  // um vizinho próximo demais pra algum deles, então isso deixava uma
+  // dúzia de países (Armênia, Turquemenistão, Ruanda, Burundi, Albânia,
+  // Bósnia...) permanentemente sem nome, em QUALQUER zoom, mesmo o máximo
+  // — parecia esquecimento, mas era escolha de design errada pra esse
+  // pedido específico ("todo país tem que ter nome, sem exceção"). Cada
+  // rótulo já tem um clip-path com o contorno exato do PRÓPRIO país (ver
+  // countryLabels.ts) — o texto nunca escapa pra dentro do vizinho, então
+  // dois nomes vizinhos ficarem perto um do outro perto da fronteira é
+  // igual a qualquer atlas/mapa de verdade numa região concorrida (Bálcãs,
+  // Báltico, Chifre da África...), não um bug.
   //
   // Não depende de `center` de propósito: a posição/tamanho de cada país é
   // fixa no espaço (não muda com o que está no centro da tela agora), então
-  // o conjunto de rótulos "vencedores" também não deveria mudar só porque
-  // a pessoa arrastou o mapa — arrastar não deveria fazer rótulo
-  // pisca-pisca.
+  // o conjunto de rótulos visíveis também não deveria mudar só porque a
+  // pessoa arrastou o mapa — arrastar não deveria fazer rótulo pisca-pisca.
   const visibleLabelEntries = useMemo(() => {
     if (!labelEntries || labelEntries.length === 0) return [];
     // Diferente do resto do mapa (pontos de cidade, badge de cluster...),
@@ -739,67 +748,13 @@ function WorldMapInner({
     const screenPxPerSvgUnit = (mapWidthPx > 0 ? mapWidthPx / 800 : 1216 / 800) * labelZoom;
     const screenCapSvg = MAX_LABEL_SCREEN_PX / screenPxPerSvgUnit;
 
-    const sized = labelEntries
+    return labelEntries
       .map((e) => {
         const fontSizeSvg = Math.min(e.layout.fontSize, screenCapSvg);
         const apparentPx = fontSizeSvg * screenPxPerSvgUnit;
-        return { entry: e, fontSizeSvg, apparentPx };
+        return { rsmKey: e.rsmKey, layout: e.layout, country: e.country, fontSizeSvg, apparentPx };
       })
       .filter((s) => s.apparentPx >= MIN_LABEL_SCREEN_PX);
-
-    // Maior primeiro — quem ganharia mais destaque na tela reserva seu
-    // espaço antes dos vizinhos menores/menos importantes.
-    sized.sort((a, b) => b.apparentPx - a.apparentPx);
-
-    const placed: { x: number; y: number; halfW: number; halfH: number }[] = [];
-    const result: { rsmKey: string; layout: CountryLabelLayout; country: Country; fontSizeSvg: number }[] = [];
-    for (const s of sized) {
-      const { layout, country, rsmKey } = s.entry;
-      const name = getPtName(country);
-      // Metade da largura/altura do texto NA HORIZONTAL (sem girar ainda),
-      // em unidades do viewBox (mesmo espaço de layout.x/y) — mesma
-      // heurística de countryLabels.ts.
-      const rawHalfW = (name.length * s.fontSizeSvg * APPROX_CHAR_WIDTH_FACTOR) / 2;
-      // 0.75 (não 0.5) de propósito: a altura "de verdade" ocupada por uma
-      // linha de texto é maior que o font-size nominal — acentos (ó, â, ã)
-      // sobem acima da caixa e a fonte em negrito tem descida própria.
-      // Descoberto testando o Báltico (Estônia/Letônia/Lituânia — três
-      // países pequenos e bem próximos): com 0.5 os três "cabiam" pelo
-      // cálculo mas nasciam visualmente grudados um no outro.
-      const rawHalfH = s.fontSizeSvg * 0.75;
-      // Um país bem alongado (Chile, Guiana Francesa...) gira o texto pra
-      // acompanhar o próprio formato (ver layout.angle/rotate em
-      // countryLabels.ts) — um texto quase vertical (~90°) ocupa uma faixa
-      // ESTREITA na horizontal e ALTA na vertical, o oposto da caixa "texto
-      // deitado" acima. Sem girar a caixa de colisão junto, um país
-      // vizinho geograficamente próximo na direção em que o texto girado
-      // NÃO se estende (ex: Suriname, que fica ao lado da Guiana Francesa
-      // na mesma latitude) colide pra sempre com uma caixa larga demais
-      // que não existe de verdade na tela — a Guiana Francesa nunca
-      // aparecia por causa disso, mesmo no zoom máximo. Fórmula padrão de
-      // bounding box de retângulo rotacionado (a mesma teoria de
-      // countryLabels.ts pro eixo principal, aplicada aqui na caixa do
-      // texto em vez do polígono do país).
-      const rad = (layout.angle * Math.PI) / 180;
-      const cos = Math.abs(Math.cos(rad));
-      const sin = Math.abs(Math.sin(rad));
-      const halfW = rawHalfW * cos + rawHalfH * sin;
-      const halfH = rawHalfW * sin + rawHalfH * cos;
-      // Fator > 1 de propósito: exige uma FOLGA entre as caixas, não só
-      // "não tocar" — sem essa margem, países vizinhos com nomes grandes
-      // (ex: Polônia/Bielorrússia) ainda nasciam encostados ou
-      // ligeiramente sobrepostos, já que a estimativa de largura do texto
-      // é uma aproximação, não uma medida exata do glifo renderizado.
-      const collides = placed.some(
-        (p) =>
-          Math.abs(p.x - layout.x) < (p.halfW + halfW) * 1.2 &&
-          Math.abs(p.y - layout.y) < (p.halfH + halfH) * 1.2,
-      );
-      if (collides) continue;
-      placed.push({ x: layout.x, y: layout.y, halfW, halfH });
-      result.push({ rsmKey, layout, country, fontSizeSvg: s.fontSizeSvg });
-    }
-    return result;
   }, [labelEntries, labelZoom, mapWidthPx]);
 
   // Todo o conteúdo "pesado" do SVG (esferas, meridianos, ~180 formas de
