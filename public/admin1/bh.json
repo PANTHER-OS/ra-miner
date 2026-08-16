@@ -1,0 +1,7 @@
+{"type":"FeatureCollection", "features": [
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[50.5039,26.242],[50.5516,26.1942],[50.5867,26.2425],[50.5039,26.242]]]},"properties":{"id":"BH","name":"da Capital"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[50.4909,26.048],[50.5245,26.1289],[50.5516,26.1942],[50.5039,26.242],[50.453,26.1496],[50.4909,26.048]]]},"properties":{"id":"BH","name":"Norte"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[50.6163,26.0959],[50.5245,26.1289],[50.4909,26.048],[50.4605,25.9853],[50.5472,25.8529],[50.6035,25.8546],[50.6163,26.0959]]]},"properties":{"id":"BH","name":"Sul"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[50.5516,26.1942],[50.5245,26.1289],[50.6163,26.0959],[50.6355,26.1344],[50.5516,26.1942]]]},"properties":{"id":"BH","name":"Central"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[50.6017,26.2789],[50.6124,26.2413],[50.6478,26.2391],[50.6553,26.2767],[50.6017,26.2789]]]},"properties":{"id":"BH","name":"Muharraq"}}
+]}

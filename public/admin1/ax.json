@@ -1,0 +1,13 @@
+{"type":"FeatureCollection", "features": [
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[20.2776,60.1422],[20.2224,60.1496],[20.2019,60.0876],[20.2689,60.086],[20.2776,60.1422]]]},"properties":{"id":"AX","name":"Lumparland"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[19.6395,60.2209],[19.5132,60.1838],[19.5446,60.1348],[19.6711,60.1581],[19.6395,60.2209]]]},"properties":{"id":"AX","name":"Eckerö"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[20.4279,60.2657],[20.3796,60.2697],[20.3929,60.1968],[20.4414,60.2452],[20.4279,60.2657]]]},"properties":{"id":"AX","name":"Vårdö"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[20.8189,60.2322],[20.853,60.2657],[20.7811,60.2637],[20.8189,60.2322]]]},"properties":{"id":"AX","name":"Kumlinge"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[19.9103,60.1011],[19.9371,60.1108],[19.966,60.0911],[20.033,60.1444],[19.9436,60.1862],[19.8102,60.149],[19.9103,60.1011]]]},"properties":{"id":"AX","name":"Jomala"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[19.966,60.0911],[19.9371,60.1108],[19.9103,60.1011],[19.966,60.0911]]]},"properties":{"id":"AX","name":"Mariehamn"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[20.9836,59.9428],[20.9347,59.958],[20.9321,59.9359],[20.9836,59.9428]]]},"properties":{"id":"AX","name":"Kökar"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[20.2813,59.9766],[20.3986,59.9813],[20.3394,60.0201],[20.2813,59.9766]]]},"properties":{"id":"AX","name":"Föglö"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[20.6834,60.1305],[20.6536,60.1514],[20.6387,60.1313],[20.6834,60.1305]]]},"properties":{"id":"AX","name":"Sottunga"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[20.0336,60.0636],[20.1232,59.9889],[20.1932,60.0656],[20.0336,60.0636]]]},"properties":{"id":"AX","name":"Lemland"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[21.0886,60.4801],[21.0593,60.4667],[21.065,60.4548],[21.0967,60.4634],[21.0886,60.4801]]]},"properties":{"id":"AX","name":"Brändö"}}
+]}
