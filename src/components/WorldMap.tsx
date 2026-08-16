@@ -19,6 +19,7 @@ import {
   computeCountryLabel,
   geometryToPath,
   pointInPolygonRing,
+  projectLngLat,
   type CountryLabelLayout,
   type GeoGeometry,
 } from "@/lib/countryLabels";
@@ -105,12 +106,21 @@ const MIN_ADMIN_LABEL_SCREEN_PX = 9;
 const MAX_ADMIN_LABEL_SCREEN_PX = 20;
 
 // Zoom mínimo (bruto, mesma unidade do badge "×" no canto do mapa) a
-// partir do qual vale a pena perguntar "que país tá embaixo do centro da
-// tela" pra mostrar as divisões dele sem precisar selecionar — abaixo
-// disso o mapa ainda mostra várias regiões/continentes de uma vez, e
-// "o país embaixo do centro" não significa "a pessoa tá olhando pra esse
-// país" (é só geometria, não intenção).
-const ADMIN1_MIN_ZOOM = 3;
+// partir do qual vale a pena perguntar "que países estão pegando na
+// tela" pra mostrar as divisões deles sem precisar selecionar nenhum —
+// abaixo disso o mapa ainda mostra várias regiões/continentes de uma vez
+// (a janela visível, em graus de longitude, é ~360/zoom — em 3.2×, ainda
+// dá pra caber a América do Sul inteira MAIS a África Ocidental na
+// mesma tela), e nesse nível "o país está tecnicamente dentro da janela
+// visível" não significa "a pessoa está olhando pra ele" — dispararia
+// dezenas de países de uma vez só (bug real, encontrado testando: a
+// mesma seleção do Brasil que dá zoom pra 3.2× já vinha puxando 30
+// países ao mesmo tempo, da Costa Rica até a Guiné-Bissau). O piso mais
+// alto aqui garante que só entra em cena quando a pessoa já deu um zoom
+// de verdade — a seleção explícita (ver activeAdminCodesKey) continua
+// funcionando em QUALQUER zoom, esse piso só afeta descoberta por
+// posição/zoom, sem seleção.
+const ADMIN1_MIN_ZOOM = 5;
 
 interface CountryPin {
   country: Country;
@@ -224,7 +234,16 @@ interface AdminLabelEntry {
   id: string;
   name: string;
   layout: CountryLabelLayout;
+  countryCode: string;
 }
+
+/** Divisão administrativa já com o país-dono marcado — o fetch por país
+ * (fetchAdminDivisions) devolve isso "cru"; aqui a gente carimba de qual
+ * país cada uma veio, porque várias divisões de PAÍSES DIFERENTES convivem
+ * juntas no mesmo array agora (ver activeAdminCodes) e cada uma precisa
+ * saber a quem pertence pra escolher a cor certa (contraste contra
+ * visitado/verificado/quero-ir) e pra filtro "Destacar". */
+type TaggedAdminDivision = AdminDivision & { countryCode: string };
 
 function WorldMapInner({
   countries,
@@ -463,75 +482,134 @@ function WorldMapInner({
   const REFERENCE_MAP_WIDTH_PX = 1216;
   const sizeScale = touchTarget && mapWidthPx > 0 ? Math.max(1, REFERENCE_MAP_WIDTH_PX / mapWidthPx) : 1;
 
-  // País cujas divisões internas devem aparecer: ou o SELECIONADO (alguém
-  // abriu o card de detalhes), ou — sem seleção nenhuma — aquele cujo
-  // território cobre o CENTRO atual do mapa, contanto que já dê pra
-  // considerar "zoom fundo" (ver ADMIN1_MIN_ZOOM). As duas formas de
-  // chegar lá contam: gente que busca+seleciona (abre o card) e gente que
-  // só dá zoom direto no mapa (não abre nada) devem ver a mesma coisa —
-  // foi só o segundo caso que ficou faltando na primeira versão (a pessoa
-  // dava zoom no mapa sem tocar no país, e nada aparecia).
+  // TODOS os países cujas divisões internas devem aparecer agora: o
+  // SELECIONADO (alguém abriu o card de detalhes) SOMADO a qualquer outro
+  // país que esteja de fato ocupando a tela no zoom atual — não só um por
+  // vez. Antes disparava só pro país bem no centro da tela; dava zoom
+  // perto da fronteira entre dois países grandes e só um deles ganhava
+  // divisões, o outro (igualmente na tela) ficava sem nada — bug real,
+  // reportado com screenshot. Precisa já dar pra considerar "zoom fundo"
+  // (ver ADMIN1_MIN_ZOOM) — em zoom baixo, o mapa mostra o mundo inteiro
+  // de uma vez, e cada país "na tela" não significa a pessoa estar
+  // olhando pra ele.
   //
-  // Importante ter sido ponto-em-polígono (o país cujo território
-  // realmente contém o centro da tela) e NÃO "tamanho do rótulo no zoom
-  // atual": esse segundo critério tem um viés óbvio pra países
-  // GEOGRAFICAMENTE grandes (Rússia, China, Canadá...), cujo rótulo já
-  // nasce com fonte-base maior mesmo em zoom baixo — disparava a divisão
-  // errada (ex: China) só por estar zoomando em direção à América do Sul,
-  // sem o Brasil nem estar embaixo do cursor ainda (bug real, encontrado
-  // testando antes de enviar). Calculado a partir do zoom e centro
+  // Dois critérios somados (união, não escolha):
+  //  1) o país embaixo do CENTRO exato da tela (ponto-em-polígono contra a
+  //     geometria de verdade) — garante o caso já corrigido antes (dar
+  //     zoom sem selecionar nada continua funcionando mesmo se, por
+  //     acaso, o "centro visual" do país calculado abaixo cair fora da
+  //     janela visível).
+  //  2) qualquer país cujo "centro visual" (o mesmo ponto usado pra
+  //     posicionar o nome dele, ver computeCountryLabel) caia dentro da
+  //     JANELA REALMENTE VISÍVEL no momento — a projeção do centro do
+  //     mapa +/- meia largura/altura do viewBox, escalado pelo zoom atual
+  //     (ver projectLngLat). É esse segundo critério que resolve "todos
+  //     os países que estão pegando na tela", não só um.
+  //
+  // Importante ter sido geometria/posição de verdade e NÃO "tamanho do
+  // rótulo no zoom atual" (uma primeira tentativa, descartada): esse
+  // segundo critério tem um viés óbvio pra países GEOGRAFICAMENTE grandes
+  // (Rússia, China, Canadá...), cujo rótulo já nasce com fonte-base maior
+  // mesmo em zoom baixo — disparava a divisão errada (ex: China) só por
+  // estar zoomando em direção à América do Sul, sem o Brasil nem estar
+  // embaixo do cursor ainda (bug real, encontrado testando antes de
+  // enviar a primeira versão). Calculado a partir do zoom e centro
   // ASSENTADOS (não labelZoom contínuo) — só muda no fim de um gesto,
   // então é barato mesmo percorrendo todos os países toda vez.
-  const zoomedCountryCode = useMemo(() => {
-    if (selectedCode || !labelEntries || labelEntries.length === 0 || zoom < ADMIN1_MIN_ZOOM) return null;
-    const point: [number, number] = [center[0], center[1]];
+  const visibleAdminCodes = useMemo(() => {
+    if (!labelEntries || labelEntries.length === 0 || zoom < ADMIN1_MIN_ZOOM) return [] as string[];
+    const codes = new Set<string>();
+    const centerPoint: [number, number] = [center[0], center[1]];
     for (const e of labelEntries) {
-      if (pointInGeometry(point, e.geometry)) return e.country.cca2;
+      if (pointInGeometry(centerPoint, e.geometry)) {
+        codes.add(e.country.cca2);
+        break; // só um país pode conter o centro (exceto sobreposição, que não existe aqui)
+      }
     }
-    return null;
-  }, [selectedCode, labelEntries, zoom, center]);
+    const centerProj = projectLngLat(center[0], center[1]);
+    if (centerProj) {
+      const halfW = 400 / zoom;
+      const halfH = 300 / zoom;
+      const minX = centerProj[0] - halfW;
+      const maxX = centerProj[0] + halfW;
+      const minY = centerProj[1] - halfH;
+      const maxY = centerProj[1] + halfH;
+      for (const e of labelEntries) {
+        const { x, y } = e.layout;
+        if (x >= minX && x <= maxX && y >= minY && y <= maxY) codes.add(e.country.cca2);
+      }
+    }
+    return [...codes];
+  }, [labelEntries, zoom, center]);
 
-  const activeAdminCode = selectedCode ?? zoomedCountryCode;
+  const activeAdminCodesKey = useMemo(() => {
+    const set = new Set(visibleAdminCodes);
+    if (selectedCode) set.add(selectedCode);
+    return [...set].sort().join(",");
+  }, [visibleAdminCodes, selectedCode]);
 
-  const activeAdminCountry = useMemo(
-    () => (activeAdminCode ? countries.find((c) => c.cca2 === activeAdminCode) ?? null : null),
-    [activeAdminCode, countries],
+  // Divisões internas (estados/províncias) de TODOS os países ativos (ver
+  // activeAdminCodesKey acima) — carrega um país por vez, sob demanda, e
+  // guarda num cache local (adminCacheRef) pra nunca recalcular o layout
+  // (computeCountryLabel, custoso) de um país que já processamos antes só
+  // porque o conjunto de países visíveis mudou um pouco (ex: arrastou o
+  // mapa e um país a mais entrou na tela — os que já estavam continuam
+  // com o mesmo layout, sem retrabalho).
+  const adminCacheRef = useRef<Map<string, { divisions: TaggedAdminDivision[]; labels: AdminLabelEntry[] }>>(
+    new Map(),
   );
-
-  // Divisões internas (estados/províncias) do país ATIVO (ver
-  // activeAdminCode acima) — só carrega quando existe um (não faz sentido
-  // baixar isso pro mundo todo de uma vez, ver adminDivisions.ts) e some
-  // quando não tem mais nenhum. O layout de cada divisão (posição,
-  // tamanho, ângulo, clip-path) é calculado UMA VEZ por país, reusando a
-  // mesma engine de rótulo dos países (computeCountryLabel) — geometria
-  // pura, não depende de zoom/pan, só precisa recalcular quando o PAÍS
-  // muda.
-  const [adminDivisions, setAdminDivisions] = useState<AdminDivision[] | null>(null);
+  const [adminDivisions, setAdminDivisions] = useState<TaggedAdminDivision[]>([]);
   const [adminLabelEntries, setAdminLabelEntries] = useState<AdminLabelEntry[]>([]);
   useEffect(() => {
     let cancelled = false;
-    if (!activeAdminCode) {
-      setAdminDivisions(null);
+    const codes = activeAdminCodesKey ? activeAdminCodesKey.split(",") : [];
+    if (codes.length === 0) {
+      setAdminDivisions([]);
       setAdminLabelEntries([]);
       return;
     }
-    setAdminDivisions(null);
-    setAdminLabelEntries([]);
-    fetchAdminDivisions(activeAdminCode).then((divisions) => {
+    (async () => {
+      const results = await Promise.all(
+        codes.map(async (code) => {
+          const cached = adminCacheRef.current.get(code);
+          if (cached) return cached;
+          const raw = await fetchAdminDivisions(code);
+          const divisions: TaggedAdminDivision[] = (raw ?? []).map((d) => ({ ...d, countryCode: code }));
+          const labels: AdminLabelEntry[] = [];
+          for (const d of divisions) {
+            const layout = computeCountryLabel(d.geometry, d.name);
+            if (layout) labels.push({ id: d.id, name: d.name, layout, countryCode: code });
+          }
+          const entry = { divisions, labels };
+          adminCacheRef.current.set(code, entry);
+          return entry;
+        }),
+      );
       if (cancelled) return;
-      setAdminDivisions(divisions);
-      if (!divisions) return;
-      const entries: AdminLabelEntry[] = [];
-      for (const d of divisions) {
-        const layout = computeCountryLabel(d.geometry, d.name);
-        if (layout) entries.push({ id: d.id, name: d.name, layout });
-      }
-      setAdminLabelEntries(entries);
-    });
+      setAdminDivisions(results.flatMap((r) => r.divisions));
+      setAdminLabelEntries(results.flatMap((r) => r.labels));
+    })();
     return () => {
       cancelled = true;
     };
-  }, [activeAdminCode]);
+  }, [activeAdminCodesKey]);
+
+  // Uma divisão precisa saber se o PRÓPRIO país (dono dela) tem fundo
+  // claro (visitado/verificado/quero-ir — todos bem mais claros que o
+  // território "normal" no tema escuro) pra trocar de paleta: o contorno
+  // e o texto claros (pensados pro território escuro padrão) ficam quase
+  // invisíveis em cima de um preenchimento já claro — bug real, reportado
+  // com screenshot (Brasil marcado como visitado, fundo amarelo, linhas
+  // dos estados praticamente somem). Reaproveita o mesmo status já usado
+  // pra pintar o país no mapa base (statusMap/verifiedSet).
+  const isAdminOnLightBg = useCallback(
+    (code: string) => {
+      if (verifiedSet?.has(code)) return true;
+      const st = statusMap?.get(code) ?? "none";
+      return st === "visited" || st === "wishlist";
+    },
+    [verifiedSet, statusMap],
+  );
 
   // O RAIO DE AGRUPAMENTO em toque (44px de tela — precisa ser grande pro
   // dedo, ver markerGroups) também é convertido pra unidades do viewBox
@@ -1500,47 +1578,62 @@ function WorldMapInner({
     );
   }, [visibleLabelEntries, isFiltered]);
 
-  // Divisões internas (estados/províncias) do país selecionado — contorno
-  // fino (pra ler como "um nível abaixo" da fronteira do país, que é mais
-  // grossa/opaca) + nome, mesma engine/clip-path de rótulo dos países, um
-  // degrau menor. Só existe conteúdo aqui quando um país está selecionado
-  // E o arquivo dele já carregou (ver o efeito que popula adminDivisions).
+  // Divisões internas (estados/províncias) de todo país que estiver
+  // tomando a tela agora (ver activeAdminCodesKey acima, pode ser mais de
+  // um) — contorno fino (pra ler como "um nível abaixo" da fronteira do
+  // país, que é mais grossa/opaca) + nome, mesma engine/clip-path de
+  // rótulo dos países, um degrau menor. Só existe conteúdo aqui quando
+  // pelo menos um arquivo já carregou (ver o efeito que popula
+  // adminDivisions).
   //
   // Dividido em memos pelo mesmo motivo que mapBaseContent/mapLabelsContent
   // são separados (ver comentário lá acima): gerar o `d` de cada contorno
-  // (geometryToPath) é um custo real, e ele só muda quando o país
-  // selecionado muda — não a cada quadro de um gesto de zoom.
+  // (geometryToPath) é um custo real, e ele só muda quando o CONJUNTO de
+  // países ativos muda — não a cada quadro de um gesto de zoom.
   //
-  // Um <path> ÚNICO com todos os `d` concatenados (em vez de um <path>
-  // por divisão) e traço SÓLIDO (sem strokeDasharray) — não é só estética.
-  // Medido com profiling real (Chrome tracing) durante um gesto de zoom
-  // com os EUA selecionadas: um path tracejado por divisão (51 elementos)
-  // custava >16s de RasterTask sozinho (a GPU tem que recalcular o padrão
-  // de traço-e-vão ao longo da curva a cada novo nível de escala — bem
-  // mais caro que preencher um traço sólido). Um path só, sólido, derrubou
-  // isso pra ~1.5s no mesmo teste — a diferença entre travar o gesto de
-  // zoom inteiro e ele ficar fluido.
+  // Um <path> por PAÍS (não por divisão) com todos os `d` das divisões
+  // dele concatenados, e traço SÓLIDO (sem strokeDasharray) — não é só
+  // estética. Medido com profiling real (Chrome tracing) durante um
+  // gesto de zoom com os EUA selecionados: um path tracejado por divisão
+  // (51 elementos) custava >16s de RasterTask sozinho (a GPU tem que
+  // recalcular o padrão de traço-e-vão ao longo da curva a cada novo
+  // nível de escala — bem mais caro que preencher um traço sólido). Um
+  // path só por país, sólido, derrubou isso pra ~1.5s no mesmo teste — a
+  // diferença entre travar o gesto de zoom inteiro e ele ficar fluido.
+  // Continua um path por país (em vez de um único global) porque cada
+  // país pode precisar de uma cor diferente — ver isAdminOnLightBg.
   const adminBordersContent = useMemo(() => {
-    if (!adminDivisions || adminDivisions.length === 0) return null;
-    const merged = adminDivisions.map((d) => geometryToPath(d.geometry)).join(" ");
+    if (adminDivisions.length === 0) return null;
+    const byCountry = new Map<string, string[]>();
+    for (const d of adminDivisions) {
+      const path = geometryToPath(d.geometry);
+      const arr = byCountry.get(d.countryCode);
+      if (arr) arr.push(path);
+      else byCountry.set(d.countryCode, [path]);
+    }
     return (
-      <path
-        d={merged}
-        fill="none"
-        stroke="oklch(0.88 0.02 90 / 0.35)"
-        strokeWidth={hair * 0.7}
-        strokeLinejoin="round"
-        style={{ pointerEvents: "none" }}
-      />
+      <>
+        {[...byCountry.entries()].map(([code, paths]) => (
+          <path
+            key={`admin-border-${code}`}
+            d={paths.join(" ")}
+            fill="none"
+            stroke={isAdminOnLightBg(code) ? "oklch(0.2 0.03 260 / 0.5)" : "oklch(0.88 0.02 90 / 0.35)"}
+            strokeWidth={hair * 0.7}
+            strokeLinejoin="round"
+            style={{ pointerEvents: "none" }}
+          />
+        ))}
+      </>
     );
-  }, [adminDivisions, hair]);
+  }, [adminDivisions, hair, isAdminOnLightBg]);
 
   // O <clipPath> de cada rótulo vem da geometria da própria divisão — não
-  // muda com o zoom, só quando o país selecionado muda. Antes vivia dentro
-  // do memo dos rótulos (que recalcula a cada quadro): o navegador tinha
-  // que reconstruir a máscara de recorte de até ~85 elementos a cada
-  // quadro do gesto de zoom, o que por si só já travava. Aqui fica preso
-  // ao mesmo ritmo de adminBordersContent (uma vez por seleção de país).
+  // muda com o zoom, só quando o conjunto de países ativos muda. Antes
+  // vivia dentro do memo dos rótulos (que recalcula a cada quadro): o
+  // navegador tinha que reconstruir a máscara de recorte de até ~85
+  // elementos a cada quadro do gesto de zoom, o que por si só já travava.
+  // Aqui fica preso ao mesmo ritmo de adminBordersContent.
   const adminLabelDefsContent = useMemo(() => {
     if (adminLabelEntries.length === 0) return null;
     return (
@@ -1556,22 +1649,23 @@ function WorldMapInner({
 
   // Rótulos das divisões: ao contrário do rótulo de país (poucos visíveis
   // ao mesmo tempo, em geral), um país grande pode ter 40+ estados/
-  // províncias visíveis ao mesmo tempo (EUA, Rússia, Brasil...). Usar
-  // AnimatePresence (framer motion) — que monta/desmonta cada nó e roda
-  // sua própria máquina de entra-e-sai — pra dezenas de nós a cada quadro
-  // de zoom era o gargalo real (long tasks de +1s medidas no perfil).
-  // Aqui todo mundo fica montado o tempo todo (a lista raramente muda de
-  // conteúdo, só o país selecionado troca) e só opacity/fontSize mudam,
-  // via CSS puro — o navegador anima isso no compositor, sem JS por
-  // quadro.
+  // províncias visíveis ao mesmo tempo (EUA, Rússia, Brasil...) — e agora
+  // vários países ao mesmo tempo. Usar AnimatePresence (framer motion) —
+  // que monta/desmonta cada nó e roda sua própria máquina de entra-e-sai
+  // — pra dezenas de nós a cada quadro de zoom era o gargalo real (long
+  // tasks de +1s medidas no perfil). Aqui todo mundo fica montado o tempo
+  // todo (a lista raramente muda de conteúdo) e só opacity/fontSize
+  // mudam, via CSS puro — o navegador anima isso no compositor, sem JS
+  // por quadro.
   const adminLabelsContent = useMemo(() => {
     if (adminLabelEntries.length === 0) return null;
-    const dimmed = isFiltered(activeAdminCountry ?? undefined);
     const screenCapSvg = MAX_ADMIN_LABEL_SCREEN_PX / adminScreenPxPerSvgUnit;
     return (
       <>
         {adminLabelEntries.map((e) => {
-          const { layout, name, id } = e;
+          const { layout, name, id, countryCode } = e;
+          const dimmed = isFiltered(byCca2.get(countryCode));
+          const lightBg = isAdminOnLightBg(countryCode);
           const fontSizeSvg = Math.min(layout.fontSize, screenCapSvg);
           const apparentPx = fontSizeSvg * adminScreenPxPerSvgUnit;
           const visible = apparentPx >= MIN_ADMIN_LABEL_SCREEN_PX;
@@ -1597,8 +1691,8 @@ function WorldMapInner({
                     fontSize={fontSizeSvg}
                     fontWeight={600}
                     letterSpacing={fontSizeSvg * 0.01}
-                    fill="oklch(0.93 0.012 90 / 0.85)"
-                    stroke="oklch(0.09 0.02 260 / 0.5)"
+                    fill={lightBg ? "oklch(0.16 0.03 260 / 0.9)" : "oklch(0.93 0.012 90 / 0.85)"}
+                    stroke={lightBg ? "oklch(0.98 0.01 90 / 0.55)" : "oklch(0.09 0.02 260 / 0.5)"}
                     strokeWidth={fontSizeSvg * 0.04}
                     paintOrder="stroke"
                     style={{ userSelect: "none" }}
@@ -1612,7 +1706,7 @@ function WorldMapInner({
         })}
       </>
     );
-  }, [adminLabelEntries, adminScreenPxPerSvgUnit, isFiltered, activeAdminCountry]);
+  }, [adminLabelEntries, adminScreenPxPerSvgUnit, isFiltered, isAdminOnLightBg, byCca2]);
 
   return (
     <div className="relative w-full">

@@ -249,6 +249,16 @@ export function geometryToPath(geometry: GeoGeometry): string {
   return pathGenerator(geometry as never) ?? "";
 }
 
+/** Projeta um ponto [lng, lat] pro MESMO espaço de coordenadas (0-800 x
+ * 0-600) usado por `layout.x`/`layout.y` acima — a mesma projeção, sem
+ * atalho. Usado em WorldMap.tsx pra descobrir a janela (bounding box em
+ * unidades do viewBox) realmente visível na tela a partir do centro/zoom
+ * do mapa, e então achar quais países estão de fato na tela agora (não só
+ * "qual país está bem no meio"). */
+export function projectLngLat(lng: number, lat: number): [number, number] | null {
+  return projection([lng, lat]) as [number, number] | null;
+}
+
 /** Teste ponto-em-polígono (ray casting) sobre coordenadas geográficas
  * (lng/lat) cruas, sem projeção — usado pra achar território "engolido":
  * um país da nossa lista (o caso encontrado: Guiana Francesa) sem forma
