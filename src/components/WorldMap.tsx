@@ -22,6 +22,7 @@ import {
   type CountryLabelLayout,
   type GeoGeometry,
 } from "@/lib/countryLabels";
+import { fetchAdminDivisions, type AdminDivision } from "@/lib/adminDivisions";
 
 const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
@@ -94,6 +95,14 @@ const TOUCH_HIT_RADIUS_PX = 20;
 // país gigante bem no fundo do zoom mostraria letras enormes demais.
 const MIN_LABEL_SCREEN_PX = 8;
 const MAX_LABEL_SCREEN_PX = 38;
+
+// Mesma ideia, um nível abaixo: nome de estado/província só aparece
+// depois que a pessoa já deu bastante zoom no país (min mais alto que o
+// do país) e nunca cresce tanto quanto o nome do país em si (max bem
+// menor) — ajuda a ler a hierarquia visual (país sempre "manda" mais que
+// a divisão interna dele) mesmo os dois aparecendo juntos na tela.
+const MIN_ADMIN_LABEL_SCREEN_PX = 9;
+const MAX_ADMIN_LABEL_SCREEN_PX = 20;
 
 interface CountryPin {
   country: Country;
@@ -179,6 +188,12 @@ interface CountryLabelEntry {
   rsmKey: string;
   layout: CountryLabelLayout;
   country: Country;
+}
+
+interface AdminLabelEntry {
+  id: string;
+  name: string;
+  layout: CountryLabelLayout;
 }
 
 function WorldMapInner({
@@ -330,6 +345,41 @@ function WorldMapInner({
     () => (selectedCode ? countries.find((c) => c.cca2 === selectedCode) ?? null : null),
     [selectedCode, countries],
   );
+
+  // Divisões internas (estados/províncias) do país SELECIONADO — só
+  // carrega quando alguém escolhe um país (não faz sentido baixar isso
+  // pro mundo todo de uma vez, ver adminDivisions.ts) e some quando o
+  // país é desmarcado ou trocado. O layout de cada divisão (posição,
+  // tamanho, ângulo, clip-path) é calculado UMA VEZ por país, reusando a
+  // mesma engine de rótulo dos países (computeCountryLabel) — geometria
+  // pura, não depende de zoom/pan, só precisa recalcular quando o PAÍS
+  // muda.
+  const [adminDivisions, setAdminDivisions] = useState<AdminDivision[] | null>(null);
+  const [adminLabelEntries, setAdminLabelEntries] = useState<AdminLabelEntry[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedCode) {
+      setAdminDivisions(null);
+      setAdminLabelEntries([]);
+      return;
+    }
+    setAdminDivisions(null);
+    setAdminLabelEntries([]);
+    fetchAdminDivisions(selectedCode).then((divisions) => {
+      if (cancelled) return;
+      setAdminDivisions(divisions);
+      if (!divisions) return;
+      const entries: AdminLabelEntry[] = [];
+      for (const d of divisions) {
+        const layout = computeCountryLabel(d.geometry, d.name);
+        if (layout) entries.push({ id: d.id, name: d.name, layout });
+      }
+      setAdminLabelEntries(entries);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCode]);
 
   const isFiltered = useCallback(
     (c: Country | undefined) => {
@@ -756,6 +806,23 @@ function WorldMapInner({
       })
       .filter((s) => s.apparentPx >= MIN_LABEL_SCREEN_PX);
   }, [labelEntries, labelZoom, mapWidthPx]);
+
+  // Mesmo cálculo acima, um nível abaixo: nome de estado/província só do
+  // país selecionado, com o teto de tela menor (MAX_ADMIN_LABEL_SCREEN_PX)
+  // pra nunca competir em tamanho com o nome do próprio país. Também some
+  // sozinho (nem entra na lista) quando pequeno demais pra ler — mesma
+  // regra dos países, sem exceção: nenhuma divisão fica permanentemente
+  // escondida por colidir com a vizinha (ver o mesmo raciocínio, já
+  // testado, na correção de rótulo de país que faltava).
+  // Note: ao contrário de visibleLabelEntries (rótulo de país), aqui NÃO
+  // filtramos a lista a cada quadro — ver adminLabelsContent logo abaixo
+  // pro motivo (custo de montar/desmontar dezenas de nós a cada quadro de
+  // zoom era o gargalo real; a solução foi manter todos montados e só
+  // variar opacity/fontSize via CSS).
+  const adminScreenPxPerSvgUnit = useMemo(
+    () => (mapWidthPx > 0 ? mapWidthPx / 800 : 1216 / 800) * labelZoom,
+    [mapWidthPx, labelZoom],
+  );
 
   // Todo o conteúdo "pesado" do SVG (esferas, meridianos, ~180 formas de
   // país, cidades/clusters) fica memoizado à parte, e SEPARADO do rótulo
@@ -1362,6 +1429,120 @@ function WorldMapInner({
     );
   }, [visibleLabelEntries, isFiltered]);
 
+  // Divisões internas (estados/províncias) do país selecionado — contorno
+  // fino (pra ler como "um nível abaixo" da fronteira do país, que é mais
+  // grossa/opaca) + nome, mesma engine/clip-path de rótulo dos países, um
+  // degrau menor. Só existe conteúdo aqui quando um país está selecionado
+  // E o arquivo dele já carregou (ver o efeito que popula adminDivisions).
+  //
+  // Dividido em memos pelo mesmo motivo que mapBaseContent/mapLabelsContent
+  // são separados (ver comentário lá acima): gerar o `d` de cada contorno
+  // (geometryToPath) é um custo real, e ele só muda quando o país
+  // selecionado muda — não a cada quadro de um gesto de zoom.
+  //
+  // Um <path> ÚNICO com todos os `d` concatenados (em vez de um <path>
+  // por divisão) e traço SÓLIDO (sem strokeDasharray) — não é só estética.
+  // Medido com profiling real (Chrome tracing) durante um gesto de zoom
+  // com os EUA selecionadas: um path tracejado por divisão (51 elementos)
+  // custava >16s de RasterTask sozinho (a GPU tem que recalcular o padrão
+  // de traço-e-vão ao longo da curva a cada novo nível de escala — bem
+  // mais caro que preencher um traço sólido). Um path só, sólido, derrubou
+  // isso pra ~1.5s no mesmo teste — a diferença entre travar o gesto de
+  // zoom inteiro e ele ficar fluido.
+  const adminBordersContent = useMemo(() => {
+    if (!adminDivisions || adminDivisions.length === 0) return null;
+    const merged = adminDivisions.map((d) => geometryToPath(d.geometry)).join(" ");
+    return (
+      <path
+        d={merged}
+        fill="none"
+        stroke="oklch(0.88 0.02 90 / 0.35)"
+        strokeWidth={hair * 0.7}
+        strokeLinejoin="round"
+        style={{ pointerEvents: "none" }}
+      />
+    );
+  }, [adminDivisions, hair]);
+
+  // O <clipPath> de cada rótulo vem da geometria da própria divisão — não
+  // muda com o zoom, só quando o país selecionado muda. Antes vivia dentro
+  // do memo dos rótulos (que recalcula a cada quadro): o navegador tinha
+  // que reconstruir a máscara de recorte de até ~85 elementos a cada
+  // quadro do gesto de zoom, o que por si só já travava. Aqui fica preso
+  // ao mesmo ritmo de adminBordersContent (uma vez por seleção de país).
+  const adminLabelDefsContent = useMemo(() => {
+    if (adminLabelEntries.length === 0) return null;
+    return (
+      <defs>
+        {adminLabelEntries.map((e) => (
+          <clipPath key={`admin-clip-${e.id}`} id={`admin-label-clip-${e.id}`}>
+            <path d={e.layout.clipPath} />
+          </clipPath>
+        ))}
+      </defs>
+    );
+  }, [adminLabelEntries]);
+
+  // Rótulos das divisões: ao contrário do rótulo de país (poucos visíveis
+  // ao mesmo tempo, em geral), um país grande pode ter 40+ estados/
+  // províncias visíveis ao mesmo tempo (EUA, Rússia, Brasil...). Usar
+  // AnimatePresence (framer motion) — que monta/desmonta cada nó e roda
+  // sua própria máquina de entra-e-sai — pra dezenas de nós a cada quadro
+  // de zoom era o gargalo real (long tasks de +1s medidas no perfil).
+  // Aqui todo mundo fica montado o tempo todo (a lista raramente muda de
+  // conteúdo, só o país selecionado troca) e só opacity/fontSize mudam,
+  // via CSS puro — o navegador anima isso no compositor, sem JS por
+  // quadro.
+  const adminLabelsContent = useMemo(() => {
+    if (adminLabelEntries.length === 0) return null;
+    const dimmed = isFiltered(selectedCountry ?? undefined);
+    const screenCapSvg = MAX_ADMIN_LABEL_SCREEN_PX / adminScreenPxPerSvgUnit;
+    return (
+      <>
+        {adminLabelEntries.map((e) => {
+          const { layout, name, id } = e;
+          const fontSizeSvg = Math.min(layout.fontSize, screenCapSvg);
+          const apparentPx = fontSizeSvg * adminScreenPxPerSvgUnit;
+          const visible = apparentPx >= MIN_ADMIN_LABEL_SCREEN_PX;
+          return (
+            <g
+              key={`admin-label-${id}`}
+              clipPath={`url(#admin-label-clip-${id})`}
+              style={{ pointerEvents: "none" }}
+            >
+              <g transform={`translate(${layout.x} ${layout.y})`}>
+                <g
+                  style={{
+                    opacity: visible ? (dimmed ? 0.22 : 0.82) : 0,
+                    transition: "opacity 0.18s ease-out",
+                  }}
+                >
+                  <text
+                    x={0}
+                    y={0}
+                    transform={layout.angle ? `rotate(${layout.angle})` : undefined}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fontSize={fontSizeSvg}
+                    fontWeight={600}
+                    letterSpacing={fontSizeSvg * 0.01}
+                    fill="oklch(0.93 0.012 90 / 0.85)"
+                    stroke="oklch(0.09 0.02 260 / 0.5)"
+                    strokeWidth={fontSizeSvg * 0.04}
+                    paintOrder="stroke"
+                    style={{ userSelect: "none" }}
+                  >
+                    {name}
+                  </text>
+                </g>
+              </g>
+            </g>
+          );
+        })}
+      </>
+    );
+  }, [adminLabelEntries, adminScreenPxPerSvgUnit, isFiltered, selectedCountry]);
+
   return (
     <div className="relative w-full">
     <div
@@ -1424,6 +1605,9 @@ function WorldMapInner({
           >
             {mapBaseContent}
             {mapLabelsContent}
+            {adminBordersContent}
+            {adminLabelDefsContent}
+            {adminLabelsContent}
           </ZoomableGroup>
         </ComposableMap>
       )}

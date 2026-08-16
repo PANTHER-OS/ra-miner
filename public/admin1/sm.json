@@ -1,0 +1,11 @@
+{"type":"FeatureCollection", "features": [
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[12.4907,43.965],[12.4272,43.9694],[12.4481,43.9547],[12.4907,43.965]]]},"properties":{"id":"SM","name":"Serravalle"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[12.4907,43.965],[12.4481,43.9547],[12.4572,43.9334],[12.4915,43.9491],[12.4907,43.965]]]},"properties":{"id":"SM","name":"Domagnano"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[12.4915,43.9491],[12.4572,43.9334],[12.4645,43.9245],[12.468,43.9226],[12.478,43.9232],[12.4831,43.9292],[12.4915,43.9491]]]},"properties":{"id":"SM","name":"Faetano"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[12.478,43.9232],[12.468,43.9226],[12.4644,43.9001],[12.478,43.9232]]]},"properties":{"id":"SM","name":"Montegiardino"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[12.4644,43.9001],[12.468,43.9226],[12.4645,43.9245],[12.4411,43.9145],[12.4351,43.904],[12.4413,43.8933],[12.4644,43.9001]]]},"properties":{"id":"SM","name":"Fiorentino"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[12.4413,43.8933],[12.4351,43.904],[12.39,43.9179],[12.4211,43.8952],[12.4413,43.8933]]]},"properties":{"id":"SM","name":"Chiesanuova"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[12.39,43.9179],[12.4351,43.904],[12.4411,43.9145],[12.4181,43.9406],[12.3856,43.9245],[12.39,43.9179]]]},"properties":{"id":"SM","name":"San Marino"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[12.3856,43.9245],[12.4181,43.9406],[12.4166,43.9637],[12.3856,43.9245]]]},"properties":{"id":"SM","name":"Acquaviva"}},
+{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[12.4166,43.9637],[12.4181,43.9406],[12.4411,43.9145],[12.4645,43.9245],[12.4572,43.9334],[12.4481,43.9547],[12.4272,43.9694],[12.4166,43.9637]]]},"properties":{"id":"SM","name":"Borgo Maggiore"}}
+]}
