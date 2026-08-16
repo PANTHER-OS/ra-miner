@@ -104,6 +104,14 @@ const MAX_LABEL_SCREEN_PX = 38;
 const MIN_ADMIN_LABEL_SCREEN_PX = 9;
 const MAX_ADMIN_LABEL_SCREEN_PX = 20;
 
+// Zoom mínimo (bruto, mesma unidade do badge "×" no canto do mapa) a
+// partir do qual vale a pena perguntar "que país tá embaixo do centro da
+// tela" pra mostrar as divisões dele sem precisar selecionar — abaixo
+// disso o mapa ainda mostra várias regiões/continentes de uma vez, e
+// "o país embaixo do centro" não significa "a pessoa tá olhando pra esse
+// país" (é só geometria, não intenção).
+const ADMIN1_MIN_ZOOM = 3;
+
 interface CountryPin {
   country: Country;
   lat: number;
@@ -188,6 +196,28 @@ interface CountryLabelEntry {
   rsmKey: string;
   layout: CountryLabelLayout;
   country: Country;
+  geometry: GeoGeometry;
+}
+
+/** Mesmo teste ponto-em-polígono usado pra achar território "engolido"
+ * (ver comentário grande mais abaixo), só que aqui pra outra coisa:
+ * achar em qual país o CENTRO atual do mapa cai — usado pra mostrar as
+ * divisões internas de um país só de dar zoom nele, sem precisar
+ * selecionar/abrir o card (ver zoomedCountryCode). Testa só o anel
+ * externo de cada polígono (ignora buracos internos) — aproximação
+ * aceitável pro que isso decide (não precisa de precisão de fronteira,
+ * só "mais ou menos que país é esse"). */
+function pointInGeometry(point: [number, number], geometry: GeoGeometry): boolean {
+  const geo = geometry as unknown as { type: string; coordinates: unknown };
+  if (geo.type === "Polygon") {
+    const rings = geo.coordinates as [number, number][][];
+    return rings.length > 0 && pointInPolygonRing(point, rings[0]);
+  }
+  if (geo.type === "MultiPolygon") {
+    const polys = geo.coordinates as [number, number][][][];
+    return polys.some((poly) => poly.length > 0 && pointInPolygonRing(point, poly[0]));
+  }
+  return false;
 }
 
 interface AdminLabelEntry {
@@ -346,41 +376,6 @@ function WorldMapInner({
     [selectedCode, countries],
   );
 
-  // Divisões internas (estados/províncias) do país SELECIONADO — só
-  // carrega quando alguém escolhe um país (não faz sentido baixar isso
-  // pro mundo todo de uma vez, ver adminDivisions.ts) e some quando o
-  // país é desmarcado ou trocado. O layout de cada divisão (posição,
-  // tamanho, ângulo, clip-path) é calculado UMA VEZ por país, reusando a
-  // mesma engine de rótulo dos países (computeCountryLabel) — geometria
-  // pura, não depende de zoom/pan, só precisa recalcular quando o PAÍS
-  // muda.
-  const [adminDivisions, setAdminDivisions] = useState<AdminDivision[] | null>(null);
-  const [adminLabelEntries, setAdminLabelEntries] = useState<AdminLabelEntry[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    if (!selectedCode) {
-      setAdminDivisions(null);
-      setAdminLabelEntries([]);
-      return;
-    }
-    setAdminDivisions(null);
-    setAdminLabelEntries([]);
-    fetchAdminDivisions(selectedCode).then((divisions) => {
-      if (cancelled) return;
-      setAdminDivisions(divisions);
-      if (!divisions) return;
-      const entries: AdminLabelEntry[] = [];
-      for (const d of divisions) {
-        const layout = computeCountryLabel(d.geometry, d.name);
-        if (layout) entries.push({ id: d.id, name: d.name, layout });
-      }
-      setAdminLabelEntries(entries);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedCode]);
-
   const isFiltered = useCallback(
     (c: Country | undefined) => {
       if (!c) return true;
@@ -467,6 +462,77 @@ function WorldMapInner({
   // mudar nada no desktop.
   const REFERENCE_MAP_WIDTH_PX = 1216;
   const sizeScale = touchTarget && mapWidthPx > 0 ? Math.max(1, REFERENCE_MAP_WIDTH_PX / mapWidthPx) : 1;
+
+  // País cujas divisões internas devem aparecer: ou o SELECIONADO (alguém
+  // abriu o card de detalhes), ou — sem seleção nenhuma — aquele cujo
+  // território cobre o CENTRO atual do mapa, contanto que já dê pra
+  // considerar "zoom fundo" (ver ADMIN1_MIN_ZOOM). As duas formas de
+  // chegar lá contam: gente que busca+seleciona (abre o card) e gente que
+  // só dá zoom direto no mapa (não abre nada) devem ver a mesma coisa —
+  // foi só o segundo caso que ficou faltando na primeira versão (a pessoa
+  // dava zoom no mapa sem tocar no país, e nada aparecia).
+  //
+  // Importante ter sido ponto-em-polígono (o país cujo território
+  // realmente contém o centro da tela) e NÃO "tamanho do rótulo no zoom
+  // atual": esse segundo critério tem um viés óbvio pra países
+  // GEOGRAFICAMENTE grandes (Rússia, China, Canadá...), cujo rótulo já
+  // nasce com fonte-base maior mesmo em zoom baixo — disparava a divisão
+  // errada (ex: China) só por estar zoomando em direção à América do Sul,
+  // sem o Brasil nem estar embaixo do cursor ainda (bug real, encontrado
+  // testando antes de enviar). Calculado a partir do zoom e centro
+  // ASSENTADOS (não labelZoom contínuo) — só muda no fim de um gesto,
+  // então é barato mesmo percorrendo todos os países toda vez.
+  const zoomedCountryCode = useMemo(() => {
+    if (selectedCode || !labelEntries || labelEntries.length === 0 || zoom < ADMIN1_MIN_ZOOM) return null;
+    const point: [number, number] = [center[0], center[1]];
+    for (const e of labelEntries) {
+      if (pointInGeometry(point, e.geometry)) return e.country.cca2;
+    }
+    return null;
+  }, [selectedCode, labelEntries, zoom, center]);
+
+  const activeAdminCode = selectedCode ?? zoomedCountryCode;
+
+  const activeAdminCountry = useMemo(
+    () => (activeAdminCode ? countries.find((c) => c.cca2 === activeAdminCode) ?? null : null),
+    [activeAdminCode, countries],
+  );
+
+  // Divisões internas (estados/províncias) do país ATIVO (ver
+  // activeAdminCode acima) — só carrega quando existe um (não faz sentido
+  // baixar isso pro mundo todo de uma vez, ver adminDivisions.ts) e some
+  // quando não tem mais nenhum. O layout de cada divisão (posição,
+  // tamanho, ângulo, clip-path) é calculado UMA VEZ por país, reusando a
+  // mesma engine de rótulo dos países (computeCountryLabel) — geometria
+  // pura, não depende de zoom/pan, só precisa recalcular quando o PAÍS
+  // muda.
+  const [adminDivisions, setAdminDivisions] = useState<AdminDivision[] | null>(null);
+  const [adminLabelEntries, setAdminLabelEntries] = useState<AdminLabelEntry[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeAdminCode) {
+      setAdminDivisions(null);
+      setAdminLabelEntries([]);
+      return;
+    }
+    setAdminDivisions(null);
+    setAdminLabelEntries([]);
+    fetchAdminDivisions(activeAdminCode).then((divisions) => {
+      if (cancelled) return;
+      setAdminDivisions(divisions);
+      if (!divisions) return;
+      const entries: AdminLabelEntry[] = [];
+      for (const d of divisions) {
+        const layout = computeCountryLabel(d.geometry, d.name);
+        if (layout) entries.push({ id: d.id, name: d.name, layout });
+      }
+      setAdminLabelEntries(entries);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAdminCode]);
+
   // O RAIO DE AGRUPAMENTO em toque (44px de tela — precisa ser grande pro
   // dedo, ver markerGroups) também é convertido pra unidades do viewBox
   // igual todo o resto — só que num container estreito, 44px de tela vira
@@ -969,7 +1035,12 @@ function WorldMapInner({
                       const childGeometry: GeoGeometry = { type: "Polygon", coordinates: poly };
                       const layout = computeCountryLabel(childGeometry, getPtName(c));
                       if (layout) {
-                        embeddedEntries.push({ rsmKey: `embedded-${c.cca2}`, layout, country: c });
+                        embeddedEntries.push({
+                          rsmKey: `embedded-${c.cca2}`,
+                          layout,
+                          country: c,
+                          geometry: childGeometry,
+                        });
                         claimedCca2.add(c.cca2);
                         keepIdx.delete(idx);
                       }
@@ -989,7 +1060,7 @@ function WorldMapInner({
                   const country = byCcn3.get(String(Number(geo.id)));
                   if (!country) continue;
                   const layout = computeCountryLabel(geo.geometry, getPtName(country));
-                  if (layout) entries.push({ rsmKey: geo.rsmKey, layout, country });
+                  if (layout) entries.push({ rsmKey: geo.rsmKey, layout, country, geometry: geo.geometry });
                 }
                 setLabelEntries([...entries, ...embeddedEntries]);
                 setStrippedParentPaths(strippedPaths);
@@ -1495,7 +1566,7 @@ function WorldMapInner({
   // quadro.
   const adminLabelsContent = useMemo(() => {
     if (adminLabelEntries.length === 0) return null;
-    const dimmed = isFiltered(selectedCountry ?? undefined);
+    const dimmed = isFiltered(activeAdminCountry ?? undefined);
     const screenCapSvg = MAX_ADMIN_LABEL_SCREEN_PX / adminScreenPxPerSvgUnit;
     return (
       <>
@@ -1541,7 +1612,7 @@ function WorldMapInner({
         })}
       </>
     );
-  }, [adminLabelEntries, adminScreenPxPerSvgUnit, isFiltered, selectedCountry]);
+  }, [adminLabelEntries, adminScreenPxPerSvgUnit, isFiltered, activeAdminCountry]);
 
   return (
     <div className="relative w-full">
