@@ -259,6 +259,16 @@ export function projectLngLat(lng: number, lat: number): [number, number] | null
   return projection([lng, lat]) as [number, number] | null;
 }
 
+/** Bounding box de uma geometria inteira, já projetada pro mesmo espaço
+ * (0-800 x 0-600). Ao contrário de testar só o PONTO do rótulo (o "centro
+ * visual" do país, que pode estar bem longe da borda da tela mesmo com um
+ * pedaço do país ainda visível), o bounding box captura corretamente
+ * "esse país tem AO MENOS uma beiradinha na tela agora" — o critério que
+ * decide se ele ganha divisões (ver WorldMap.tsx, visibleAdminCodes). */
+export function projectedBounds(geometry: GeoGeometry): [[number, number], [number, number]] {
+  return pathGenerator.bounds(geometry as never);
+}
+
 /** Teste ponto-em-polígono (ray casting) sobre coordenadas geográficas
  * (lng/lat) cruas, sem projeção — usado pra achar território "engolido":
  * um país da nossa lista (o caso encontrado: Guiana Francesa) sem forma

@@ -20,6 +20,7 @@ import {
   geometryToPath,
   pointInPolygonRing,
   projectLngLat,
+  projectedBounds,
   type CountryLabelLayout,
   type GeoGeometry,
 } from "@/lib/countryLabels";
@@ -207,6 +208,10 @@ interface CountryLabelEntry {
   layout: CountryLabelLayout;
   country: Country;
   geometry: GeoGeometry;
+  /** Bounding box do país já projetado (ver projectedBounds) — usado pra
+   * achar quais países têm AO MENOS uma beiradinha na janela visível
+   * agora (ver visibleAdminCodes), não só o que está bem no meio. */
+  bounds: [[number, number], [number, number]];
 }
 
 /** Mesmo teste ponto-em-polígono usado pra achar território "engolido"
@@ -302,12 +307,77 @@ function WorldMapInner({
   const [labelZoom, setLabelZoom] = useState(1);
   const pendingZoomRef = useRef<number | null>(null);
   const moveRafRef = useRef<number | null>(null);
+
+  // Rótulos de divisão (estado/província) durante um gesto CONTÍNUO de
+  // zoom: nada disso passa pelo React. É a mesma técnica já usada pro
+  // tooltip (ver "Tooltip: posição via DOM direto" logo abaixo) — mutar
+  // o DOM direto por ref, sem tocar em estado, é o único jeito de
+  // atualizar dezenas/centenas de nós a cada quadro (16ms) sem
+  // reconciliar uma árvore React nova a cada frame. Antes disso, o
+  // tamanho/opacidade de cada rótulo de divisão vinha de um useMemo que
+  // dependia de labelZoom (contínuo) — funcionava para UM país, mas
+  // travava de verdade assim que vários países ativos ao mesmo tempo
+  // (ver activeAdminCodesKey) somavam muitos rótulos: cada quadro do
+  // gesto forçava o React a recriar e comparar a lista inteira de novo.
+  // adminLabelMetaRef guarda, por id de divisão, o que NÃO muda com o
+  // zoom (fonte natural, opacidade-alvo, se é fundo claro) — só
+  // recalculado quando o conjunto de países ativos muda de verdade (ver
+  // efeito abaixo), nunca por quadro.
+  const adminLabelMetaRef = useRef<
+    Map<
+      string,
+      {
+        naturalFontSize: number;
+        targetOpacity: number;
+        // Último valor escrito no DOM — evita reescrever o mesmo `font-size`
+        // (que força o navegador a remedir o texto) quadro após quadro
+        // quando o rótulo já bateu no teto (MAX_ADMIN_LABEL_SCREEN_PX) e
+        // fica constante por boa parte de um zoom bem fundo. `NaN` força a
+        // primeira escrita sempre.
+        lastFontSize: number;
+        lastOpacity: number;
+      }
+    >
+  >(new Map());
+  const adminTextRefs = useRef<Map<string, SVGTextElement>>(new Map());
+  const adminOpacityGroupRefs = useRef<Map<string, SVGGElement>>(new Map());
+  const mapWidthPxRef = useRef(0);
+  const applyAdminLabelFrame = useCallback((zoomValue: number) => {
+    const mw = mapWidthPxRef.current;
+    const screenPxPerSvgUnit = (mw > 0 ? mw / 800 : 1216 / 800) * zoomValue;
+    const screenCapSvg = MAX_ADMIN_LABEL_SCREEN_PX / screenPxPerSvgUnit;
+    for (const [id, meta] of adminLabelMetaRef.current) {
+      const fontSizeSvg = Math.min(meta.naturalFontSize, screenCapSvg);
+      const apparentPx = fontSizeSvg * screenPxPerSvgUnit;
+      const visible = apparentPx >= MIN_ADMIN_LABEL_SCREEN_PX;
+      const opacity = visible ? meta.targetOpacity : 0;
+      // Boa parte de um gesto de zoom bem fundo mantém a fonte já no teto
+      // (screenCapSvg) — nesse trecho fontSizeSvg NÃO muda quadro a
+      // quadro, só a posição/escala do <g> pai (que o ZoomableGroup já
+      // cuida sozinho via transform, de graça). Pular a escrita quando
+      // nada mudou evita fazer o navegador remedir texto (setAttribute
+      // de font-size é uma das operações mais caras aqui) centenas de
+      // vezes por gesto à toa.
+      if (meta.lastFontSize === fontSizeSvg && meta.lastOpacity === opacity) continue;
+      meta.lastFontSize = fontSizeSvg;
+      meta.lastOpacity = opacity;
+      const textEl = adminTextRefs.current.get(id);
+      const groupEl = adminOpacityGroupRefs.current.get(id);
+      if (!textEl || !groupEl) continue;
+      groupEl.style.opacity = String(opacity);
+      textEl.setAttribute("font-size", String(fontSizeSvg));
+      textEl.setAttribute("stroke-width", String(fontSizeSvg * 0.04));
+      textEl.setAttribute("letter-spacing", String(fontSizeSvg * 0.01));
+    }
+  }, []);
+
   const flushPendingZoom = useCallback(() => {
     moveRafRef.current = null;
     const pending = pendingZoomRef.current;
     if (pending == null) return;
     setLabelZoom(pending);
-  }, []);
+    applyAdminLabelFrame(pending);
+  }, [applyAdminLabelFrame]);
   const handleZoomMove = useCallback(
     (z: number) => {
       pendingZoomRef.current = z;
@@ -534,9 +604,29 @@ function WorldMapInner({
       const maxX = centerProj[0] + halfW;
       const minY = centerProj[1] - halfH;
       const maxY = centerProj[1] + halfH;
+      // Overlap de BOUNDING BOX (não só o ponto do rótulo) — assim um país
+      // que só tem uma BEIRADINHA na tela (o "centro visual" dele, longe
+      // dali, cairia fora da janela) ainda entra na lista. É exatamente o
+      // pedido: "mesmo que seja só uma beiradinha do país, tem que
+      // aparecer" — testar só o ponto do rótulo deixava esses de fora.
+      //
+      // Exceção necessária: país com território espalhado longe da parte
+      // principal (França com ilhas no Pacífico, Reino Unido, Chile com a
+      // Ilha de Páscoa, Rússia cruzando o antimeridiano...) tem um
+      // bounding box ENORME — praticamente do tamanho do mapa inteiro —
+      // mesmo a parte principal dele estando longe da tela. Testado e
+      // encontrado: sem esse limite, França "aparecia" quase sempre,
+      // mesmo zoomado em outro continente. Acima de BBOX_SANITY_LIMIT
+      // (maior que qualquer país real, contíguo, deveria medir) volta a
+      // testar só o ponto do rótulo — mais conservador, mas correto.
+      const BBOX_SANITY_LIMIT = 300; // unidades do viewBox (800x600)
       for (const e of labelEntries) {
-        const { x, y } = e.layout;
-        if (x >= minX && x <= maxX && y >= minY && y <= maxY) codes.add(e.country.cca2);
+        const [[bx0, by0], [bx1, by1]] = e.bounds;
+        const sane = bx1 - bx0 <= BBOX_SANITY_LIMIT && by1 - by0 <= BBOX_SANITY_LIMIT;
+        const overlaps = sane
+          ? bx0 <= maxX && bx1 >= minX && by0 <= maxY && by1 >= minY
+          : e.layout.x >= minX && e.layout.x <= maxX && e.layout.y >= minY && e.layout.y <= maxY;
+        if (overlaps) codes.add(e.country.cca2);
       }
     }
     return [...codes];
@@ -610,6 +700,48 @@ function WorldMapInner({
     },
     [verifiedSet, statusMap],
   );
+
+  // O que cada rótulo de divisão precisa pra ser animado por quadro (ver
+  // applyAdminLabelFrame acima) SEM depender do zoom: fonte natural (a do
+  // próprio computeCountryLabel) e a opacidade-alvo (já considerando
+  // filtro "Destacar" — dimmed vira 0.22 em vez de sumir de vez, mesmo
+  // raciocínio do resto do mapa). Só recalcula quando o CONJUNTO de
+  // países ativos muda — nunca por quadro de zoom.
+  const adminLabelMeta = useMemo(() => {
+    const map = new Map<
+      string,
+      { naturalFontSize: number; targetOpacity: number; lastFontSize: number; lastOpacity: number }
+    >();
+    for (const e of adminLabelEntries) {
+      const dimmed = isFiltered(byCca2.get(e.countryCode));
+      // NaN garante que a primeira chamada de applyAdminLabelFrame depois
+      // de um rótulo nascer sempre escreve (nunca é igual a NaN).
+      map.set(e.id, {
+        naturalFontSize: e.layout.fontSize,
+        targetOpacity: dimmed ? 0.22 : 0.82,
+        lastFontSize: NaN,
+        lastOpacity: NaN,
+      });
+    }
+    return map;
+  }, [adminLabelEntries, isFiltered, byCca2]);
+
+  // Mantém as refs usadas por applyAdminLabelFrame (chamada de dentro de
+  // um useCallback de deps vazias, ver flushPendingZoom) sempre com o
+  // valor mais recente — atribuição direta em vez de um efeito porque só
+  // precisa estar certa ANTES do próximo quadro de rAF, não disparar
+  // nada sozinha.
+  mapWidthPxRef.current = mapWidthPx;
+  adminLabelMetaRef.current = adminLabelMeta;
+
+  // Fora de um gesto contínuo (zoom mudou de outro jeito — botão, busca,
+  // resize, ou o conjunto de países ativos mudou porque um novo terminou
+  // de carregar) ninguém mais chama applyAdminLabelFrame por conta
+  // própria — este efeito garante que o DOM sempre reflete o zoom
+  // assentado atual nesses casos.
+  useEffect(() => {
+    applyAdminLabelFrame(zoom);
+  }, [zoom, adminLabelMeta, mapWidthPx, applyAdminLabelFrame]);
 
   // O RAIO DE AGRUPAMENTO em toque (44px de tela — precisa ser grande pro
   // dedo, ver markerGroups) também é convertido pra unidades do viewBox
@@ -951,22 +1083,6 @@ function WorldMapInner({
       .filter((s) => s.apparentPx >= MIN_LABEL_SCREEN_PX);
   }, [labelEntries, labelZoom, mapWidthPx]);
 
-  // Mesmo cálculo acima, um nível abaixo: nome de estado/província só do
-  // país selecionado, com o teto de tela menor (MAX_ADMIN_LABEL_SCREEN_PX)
-  // pra nunca competir em tamanho com o nome do próprio país. Também some
-  // sozinho (nem entra na lista) quando pequeno demais pra ler — mesma
-  // regra dos países, sem exceção: nenhuma divisão fica permanentemente
-  // escondida por colidir com a vizinha (ver o mesmo raciocínio, já
-  // testado, na correção de rótulo de país que faltava).
-  // Note: ao contrário de visibleLabelEntries (rótulo de país), aqui NÃO
-  // filtramos a lista a cada quadro — ver adminLabelsContent logo abaixo
-  // pro motivo (custo de montar/desmontar dezenas de nós a cada quadro de
-  // zoom era o gargalo real; a solução foi manter todos montados e só
-  // variar opacity/fontSize via CSS).
-  const adminScreenPxPerSvgUnit = useMemo(
-    () => (mapWidthPx > 0 ? mapWidthPx / 800 : 1216 / 800) * labelZoom,
-    [mapWidthPx, labelZoom],
-  );
 
   // Todo o conteúdo "pesado" do SVG (esferas, meridianos, ~180 formas de
   // país, cidades/clusters) fica memoizado à parte, e SEPARADO do rótulo
@@ -1068,6 +1184,14 @@ function WorldMapInner({
                 const claimedCca2 = new Set<string>();
                 const embeddedEntries: CountryLabelEntry[] = [];
                 const strippedPaths = new Map<string, string>();
+                // Geometria (não só o `d` já projetado) do país SEM o
+                // pedaço "engolido" — usada abaixo pra calcular o bounds
+                // do país hospedeiro sem o território distante inflar
+                // artificialmente a caixa (ver uso em `entries`, mais
+                // abaixo: sem isso, a França "aparecia" quase sempre,
+                // zoom fundo em QUALQUER lugar, só porque o multipolígono
+                // dela inclui território nos dois hemisférios).
+                const strippedGeometries = new Map<string, GeoGeometry>();
                 for (const geo of geographies) {
                   const geometry = geo.geometry as unknown as { type: string; coordinates: unknown };
                   const rawPolys: [number, number][][][] =
@@ -1118,6 +1242,7 @@ function WorldMapInner({
                           layout,
                           country: c,
                           geometry: childGeometry,
+                          bounds: projectedBounds(childGeometry),
                         });
                         claimedCca2.add(c.cca2);
                         keepIdx.delete(idx);
@@ -1130,6 +1255,7 @@ function WorldMapInner({
                       coordinates: rawPolys.filter((_, idx) => keepIdx.has(idx)),
                     };
                     strippedPaths.set(geo.rsmKey, geometryToPath(stripped));
+                    strippedGeometries.set(geo.rsmKey, stripped);
                   }
                 }
 
@@ -1138,7 +1264,21 @@ function WorldMapInner({
                   const country = byCcn3.get(String(Number(geo.id)));
                   if (!country) continue;
                   const layout = computeCountryLabel(geo.geometry, getPtName(country));
-                  if (layout) entries.push({ rsmKey: geo.rsmKey, layout, country, geometry: geo.geometry });
+                  if (layout) {
+                    // Bounds a partir da geometria SEM o pedaço engolido
+                    // (ver strippedGeometries acima) quando existir — a
+                    // geometria completa (geo.geometry) continua sendo a
+                    // usada pra DESENHAR e pro teste ponto-em-polígono, só
+                    // o bounds usa a versão sem o território distante.
+                    const boundsGeometry = strippedGeometries.get(geo.rsmKey) ?? geo.geometry;
+                    entries.push({
+                      rsmKey: geo.rsmKey,
+                      layout,
+                      country,
+                      geometry: geo.geometry,
+                      bounds: projectedBounds(boundsGeometry),
+                    });
+                  }
                 }
                 setLabelEntries([...entries, ...embeddedEntries]);
                 setStrippedParentPaths(strippedPaths);
@@ -1657,9 +1797,16 @@ function WorldMapInner({
   // todo (a lista raramente muda de conteúdo) e só opacity/fontSize
   // mudam, via CSS puro — o navegador anima isso no compositor, sem JS
   // por quadro.
+  // Estrutura MONTADA uma vez por conjunto de países ativos (não depende
+  // de labelZoom/adminScreenPxPerSvgUnit — de propósito, ver
+  // applyAdminLabelFrame acima). O tamanho/opacidade inicial usa o zoom
+  // ASSENTADO só pra já nascer no lugar certo antes do primeiro quadro;
+  // dali em diante, todo quadro de um gesto contínuo atualiza esses
+  // mesmos nós direto via ref, sem passar pelo React de novo.
   const adminLabelsContent = useMemo(() => {
     if (adminLabelEntries.length === 0) return null;
-    const screenCapSvg = MAX_ADMIN_LABEL_SCREEN_PX / adminScreenPxPerSvgUnit;
+    const screenPxPerSvgUnit = (mapWidthPx > 0 ? mapWidthPx / 800 : 1216 / 800) * zoom;
+    const screenCapSvg = MAX_ADMIN_LABEL_SCREEN_PX / screenPxPerSvgUnit;
     return (
       <>
         {adminLabelEntries.map((e) => {
@@ -1667,7 +1814,7 @@ function WorldMapInner({
           const dimmed = isFiltered(byCca2.get(countryCode));
           const lightBg = isAdminOnLightBg(countryCode);
           const fontSizeSvg = Math.min(layout.fontSize, screenCapSvg);
-          const apparentPx = fontSizeSvg * adminScreenPxPerSvgUnit;
+          const apparentPx = fontSizeSvg * screenPxPerSvgUnit;
           const visible = apparentPx >= MIN_ADMIN_LABEL_SCREEN_PX;
           return (
             <g
@@ -1677,12 +1824,20 @@ function WorldMapInner({
             >
               <g transform={`translate(${layout.x} ${layout.y})`}>
                 <g
+                  ref={(el) => {
+                    if (el) adminOpacityGroupRefs.current.set(id, el);
+                    else adminOpacityGroupRefs.current.delete(id);
+                  }}
                   style={{
                     opacity: visible ? (dimmed ? 0.22 : 0.82) : 0,
-                    transition: "opacity 0.18s ease-out",
+                    transition: "opacity 0.15s ease-out",
                   }}
                 >
                   <text
+                    ref={(el) => {
+                      if (el) adminTextRefs.current.set(id, el);
+                      else adminTextRefs.current.delete(id);
+                    }}
                     x={0}
                     y={0}
                     transform={layout.angle ? `rotate(${layout.angle})` : undefined}
@@ -1706,7 +1861,7 @@ function WorldMapInner({
         })}
       </>
     );
-  }, [adminLabelEntries, adminScreenPxPerSvgUnit, isFiltered, isAdminOnLightBg, byCca2]);
+  }, [adminLabelEntries, zoom, mapWidthPx, isFiltered, isAdminOnLightBg, byCca2]);
 
   return (
     <div className="relative w-full">
