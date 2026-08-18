@@ -121,7 +121,26 @@ const MAX_ADMIN_LABEL_SCREEN_PX = 20;
 // de verdade — a seleção explícita (ver activeAdminCodesKey) continua
 // funcionando em QUALQUER zoom, esse piso só afeta descoberta por
 // posição/zoom, sem seleção.
-const ADMIN1_MIN_ZOOM = 5;
+const ADMIN1_MIN_ZOOM = 4;
+
+// Quantos países no MÁXIMO ficam com divisões ativas ao mesmo tempo.
+// Baixar ADMIN1_MIN_ZOOM (pra aparecer mais cedo, tipo Google Maps) por
+// si só reabriria o problema já corrigido uma vez (dezenas de países de
+// uma vez só numa região com países pequenos e próximos — Caribe,
+// Bálcãs, Golfo Pérsico...), porque a janela visível nesse zoom mais
+// baixo é maior. Esse teto resolve os dois ao mesmo tempo: sempre inclui
+// o selecionado e o que estiver embaixo do centro (garantidos, nunca
+// cortados), e completa as vagas restantes pelos MAIORES na tela agora
+// (área do bounding box já recortada pela janela visível) — put another
+// way, quem realmente domina a tela ganha a prioridade; um país que só
+// aparece raspando numa pontinha do canto, quando já tem países maiores
+// por perto, fica de fora (ele reaparece assim que um dos grandes sair
+// da tela). Medido: com 6, um país grande e cheio de divisões (EUA)
+// selecionado já entrava zoom 3.2 com mais uns 5 vizinhos GRANDES
+// (Canadá, México...) de uma vez, cada um com dezenas de próprias
+// divisões — pesado demais junto. 4 segura isso sem deixar a tela vazia
+// nos casos comuns (um país + 1-3 vizinhos visíveis é o normal).
+const MAX_ACTIVE_ADMIN_COUNTRIES = 4;
 
 interface CountryPin {
   country: Country;
@@ -588,48 +607,68 @@ function WorldMapInner({
   // então é barato mesmo percorrendo todos os países toda vez.
   const visibleAdminCodes = useMemo(() => {
     if (!labelEntries || labelEntries.length === 0 || zoom < ADMIN1_MIN_ZOOM) return [] as string[];
-    const codes = new Set<string>();
+    let centerCca2: string | null = null;
     const centerPoint: [number, number] = [center[0], center[1]];
     for (const e of labelEntries) {
       if (pointInGeometry(centerPoint, e.geometry)) {
-        codes.add(e.country.cca2);
+        centerCca2 = e.country.cca2;
         break; // só um país pode conter o centro (exceto sobreposição, que não existe aqui)
       }
     }
     const centerProj = projectLngLat(center[0], center[1]);
-    if (centerProj) {
-      const halfW = 400 / zoom;
-      const halfH = 300 / zoom;
-      const minX = centerProj[0] - halfW;
-      const maxX = centerProj[0] + halfW;
-      const minY = centerProj[1] - halfH;
-      const maxY = centerProj[1] + halfH;
-      // Overlap de BOUNDING BOX (não só o ponto do rótulo) — assim um país
-      // que só tem uma BEIRADINHA na tela (o "centro visual" dele, longe
-      // dali, cairia fora da janela) ainda entra na lista. É exatamente o
-      // pedido: "mesmo que seja só uma beiradinha do país, tem que
-      // aparecer" — testar só o ponto do rótulo deixava esses de fora.
-      //
-      // Exceção necessária: país com território espalhado longe da parte
-      // principal (França com ilhas no Pacífico, Reino Unido, Chile com a
-      // Ilha de Páscoa, Rússia cruzando o antimeridiano...) tem um
-      // bounding box ENORME — praticamente do tamanho do mapa inteiro —
-      // mesmo a parte principal dele estando longe da tela. Testado e
-      // encontrado: sem esse limite, França "aparecia" quase sempre,
-      // mesmo zoomado em outro continente. Acima de BBOX_SANITY_LIMIT
-      // (maior que qualquer país real, contíguo, deveria medir) volta a
-      // testar só o ponto do rótulo — mais conservador, mas correto.
-      const BBOX_SANITY_LIMIT = 300; // unidades do viewBox (800x600)
-      for (const e of labelEntries) {
-        const [[bx0, by0], [bx1, by1]] = e.bounds;
-        const sane = bx1 - bx0 <= BBOX_SANITY_LIMIT && by1 - by0 <= BBOX_SANITY_LIMIT;
-        const overlaps = sane
-          ? bx0 <= maxX && bx1 >= minX && by0 <= maxY && by1 >= minY
-          : e.layout.x >= minX && e.layout.x <= maxX && e.layout.y >= minY && e.layout.y <= maxY;
-        if (overlaps) codes.add(e.country.cca2);
-      }
+    if (!centerProj) return centerCca2 ? [centerCca2] : [];
+    const halfW = 400 / zoom;
+    const halfH = 300 / zoom;
+    const minX = centerProj[0] - halfW;
+    const maxX = centerProj[0] + halfW;
+    const minY = centerProj[1] - halfH;
+    const maxY = centerProj[1] + halfH;
+    // Overlap de BOUNDING BOX (não só o ponto do rótulo) — assim um país
+    // que só tem uma BEIRADINHA na tela (o "centro visual" dele, longe
+    // dali, cairia fora da janela) ainda entra na lista. É exatamente o
+    // pedido: "mesmo que seja só uma beiradinha do país, tem que
+    // aparecer" — testar só o ponto do rótulo deixava esses de fora.
+    //
+    // Exceção necessária: país com território espalhado longe da parte
+    // principal (França com ilhas no Pacífico, Reino Unido, Chile com a
+    // Ilha de Páscoa, Rússia cruzando o antimeridiano...) tem um
+    // bounding box ENORME — praticamente do tamanho do mapa inteiro —
+    // mesmo a parte principal dele estando longe da tela. Testado e
+    // encontrado: sem esse limite, França "aparecia" quase sempre,
+    // mesmo zoomado em outro continente. Acima de BBOX_SANITY_LIMIT
+    // (maior que qualquer país real, contíguo, deveria medir) volta a
+    // testar só o ponto do rótulo — mais conservador, mas correto.
+    const BBOX_SANITY_LIMIT = 300; // unidades do viewBox (800x600)
+    // Guarda, por país, a MAIOR área na tela entre as formas dele (um país
+    // pode ter mais de uma entrada — território "engolido" já vira uma
+    // entrada própria) — é essa área que decide prioridade quando
+    // MAX_ACTIVE_ADMIN_COUNTRIES corta a lista (ver comentário na
+    // constante, acima).
+    const onScreenArea = new Map<string, number>();
+    for (const e of labelEntries) {
+      const [[bx0, by0], [bx1, by1]] = e.bounds;
+      const sane = bx1 - bx0 <= BBOX_SANITY_LIMIT && by1 - by0 <= BBOX_SANITY_LIMIT;
+      const overlaps = sane
+        ? bx0 <= maxX && bx1 >= minX && by0 <= maxY && by1 >= minY
+        : e.layout.x >= minX && e.layout.x <= maxX && e.layout.y >= minY && e.layout.y <= maxY;
+      if (!overlaps) continue;
+      // Área do pedaço VISÍVEL (bbox recortado pela janela), não do país
+      // inteiro — um país gigante com só uma pontinha na tela não deveria
+      // "furar a fila" na frente de um país médio inteiro na tela.
+      const clippedW = sane ? Math.min(bx1, maxX) - Math.max(bx0, minX) : halfW * 2;
+      const clippedH = sane ? Math.min(by1, maxY) - Math.max(by0, minY) : halfH * 2;
+      const area = Math.max(0, clippedW) * Math.max(0, clippedH);
+      const prev = onScreenArea.get(e.country.cca2) ?? 0;
+      if (area > prev) onScreenArea.set(e.country.cca2, area);
     }
-    return [...codes];
+    const ranked = [...onScreenArea.entries()].sort((a, b) => b[1] - a[1]).map(([cca2]) => cca2);
+    const result = new Set<string>();
+    if (centerCca2) result.add(centerCca2); // garantido, nunca cortado pelo teto
+    for (const cca2 of ranked) {
+      if (result.size >= MAX_ACTIVE_ADMIN_COUNTRIES) break;
+      result.add(cca2);
+    }
+    return [...result];
   }, [labelEntries, zoom, center]);
 
   const activeAdminCodesKey = useMemo(() => {
@@ -648,6 +687,10 @@ function WorldMapInner({
   const adminCacheRef = useRef<Map<string, { divisions: TaggedAdminDivision[]; labels: AdminLabelEntry[] }>>(
     new Map(),
   );
+  // `d` (path SVG) já concatenado de todas as divisões de um país,
+  // cacheado por cca2 pra sempre — ver uso em adminBordersContent, mais
+  // abaixo.
+  const mergedBorderPathCacheRef = useRef<Map<string, string>>(new Map());
   const [adminDivisions, setAdminDivisions] = useState<TaggedAdminDivision[]>([]);
   const [adminLabelEntries, setAdminLabelEntries] = useState<AdminLabelEntry[]>([]);
   useEffect(() => {
@@ -658,27 +701,55 @@ function WorldMapInner({
       setAdminLabelEntries([]);
       return;
     }
+
+    // País que já tem cache aparece JÁ, sem esperar nada — só o que é
+    // realmente novo entra na fila de baixo.
+    const initialDivisions: TaggedAdminDivision[] = [];
+    const initialLabels: AdminLabelEntry[] = [];
+    const pending: string[] = [];
+    for (const code of codes) {
+      const cached = adminCacheRef.current.get(code);
+      if (cached) {
+        initialDivisions.push(...cached.divisions);
+        initialLabels.push(...cached.labels);
+      } else {
+        pending.push(code);
+      }
+    }
+    setAdminDivisions(initialDivisions);
+    setAdminLabelEntries(initialLabels);
+    if (pending.length === 0) return;
+
+    // Busca todos os pendentes em PARALELO (não custa nada de rede — são
+    // arquivos pequenos, próprios) mas processa (computeCountryLabel,
+    // parte cara) e MOSTRA um país de cada vez, cedendo um quadro pro
+    // navegador entre um e outro. Sem isso, vários países resolvendo
+    // quase juntos (comum: zoom rápido ativa 5-6 de uma vez) rodavam o
+    // cálculo de todos em sequência dentro do mesmo bloco síncrono —
+    // exatamente o "trava quando vai aparecendo as divisões" relatado.
+    // Também tem um efeito colateral bom: os países vão "nascendo" um a
+    // um em vez de todos de uma vez — mais parecido com o carregamento
+    // progressivo de mapa tipo Google Maps do que um pop-in único.
+    const fetches = pending.map((code) => fetchAdminDivisions(code).then((raw) => ({ code, raw })));
     (async () => {
-      const results = await Promise.all(
-        codes.map(async (code) => {
-          const cached = adminCacheRef.current.get(code);
-          if (cached) return cached;
-          const raw = await fetchAdminDivisions(code);
-          const divisions: TaggedAdminDivision[] = (raw ?? []).map((d) => ({ ...d, countryCode: code }));
-          const labels: AdminLabelEntry[] = [];
-          for (const d of divisions) {
-            const layout = computeCountryLabel(d.geometry, d.name);
-            if (layout) labels.push({ id: d.id, name: d.name, layout, countryCode: code });
-          }
-          const entry = { divisions, labels };
-          adminCacheRef.current.set(code, entry);
-          return entry;
-        }),
-      );
-      if (cancelled) return;
-      setAdminDivisions(results.flatMap((r) => r.divisions));
-      setAdminLabelEntries(results.flatMap((r) => r.labels));
+      for (const fetchPromise of fetches) {
+        if (cancelled) return;
+        const { code, raw } = await fetchPromise;
+        if (cancelled) return;
+        const divisions: TaggedAdminDivision[] = (raw ?? []).map((d) => ({ ...d, countryCode: code }));
+        const labels: AdminLabelEntry[] = [];
+        for (const d of divisions) {
+          const layout = computeCountryLabel(d.geometry, d.name);
+          if (layout) labels.push({ id: d.id, name: d.name, layout, countryCode: code });
+        }
+        adminCacheRef.current.set(code, { divisions, labels });
+        if (cancelled) return;
+        setAdminDivisions((prev) => [...prev, ...divisions]);
+        setAdminLabelEntries((prev) => [...prev, ...labels]);
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      }
     })();
+
     return () => {
       cancelled = true;
     };
@@ -1744,26 +1815,38 @@ function WorldMapInner({
   // país pode precisar de uma cor diferente — ver isAdminOnLightBg.
   const adminBordersContent = useMemo(() => {
     if (adminDivisions.length === 0) return null;
-    const byCountry = new Map<string, string[]>();
+    const byCountry = new Map<string, TaggedAdminDivision[]>();
     for (const d of adminDivisions) {
-      const path = geometryToPath(d.geometry);
       const arr = byCountry.get(d.countryCode);
-      if (arr) arr.push(path);
-      else byCountry.set(d.countryCode, [path]);
+      if (arr) arr.push(d);
+      else byCountry.set(d.countryCode, [d]);
     }
     return (
       <>
-        {[...byCountry.entries()].map(([code, paths]) => (
-          <path
-            key={`admin-border-${code}`}
-            d={paths.join(" ")}
-            fill="none"
-            stroke={isAdminOnLightBg(code) ? "oklch(0.2 0.03 260 / 0.5)" : "oklch(0.88 0.02 90 / 0.35)"}
-            strokeWidth={hair * 0.7}
-            strokeLinejoin="round"
-            style={{ pointerEvents: "none" }}
-          />
-        ))}
+        {[...byCountry.entries()].map(([code, divisions]) => {
+          // Cacheado por país, pra sempre: agora que os países entram aos
+          // poucos (ver o efeito que popula adminDivisions), esse memo
+          // recalcula a cada país novo — sem cache, reprocessaria (via
+          // geometryToPath, o custo real aqui) TODOS os países já
+          // processados de novo a cada chegada, um trabalho que cresce
+          // sozinho conforme mais países ficam ativos.
+          let merged = mergedBorderPathCacheRef.current.get(code);
+          if (merged === undefined) {
+            merged = divisions.map((d) => geometryToPath(d.geometry)).join(" ");
+            mergedBorderPathCacheRef.current.set(code, merged);
+          }
+          return (
+            <path
+              key={`admin-border-${code}`}
+              d={merged}
+              fill="none"
+              stroke={isAdminOnLightBg(code) ? "oklch(0.2 0.03 260 / 0.5)" : "oklch(0.88 0.02 90 / 0.35)"}
+              strokeWidth={hair * 0.7}
+              strokeLinejoin="round"
+              style={{ pointerEvents: "none" }}
+            />
+          );
+        })}
       </>
     );
   }, [adminDivisions, hair, isAdminOnLightBg]);
