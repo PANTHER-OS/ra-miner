@@ -390,12 +390,23 @@ function WorldMapInner({
     }
   }, []);
 
+  const lastAppliedAdminZoomRef = useRef<number | null>(null);
   const flushPendingZoom = useCallback(() => {
     moveRafRef.current = null;
     const pending = pendingZoomRef.current;
     if (pending == null) return;
     setLabelZoom(pending);
-    applyAdminLabelFrame(pending);
+    // Num gesto de ARRASTAR (sem mudar o zoom), onMove dispara a cada
+    // quadro com o MESMO valor de zoom — sem essa guarda,
+    // applyAdminLabelFrame percorria a lista inteira de rótulos toda vez
+    // à toa (mesmo sem escrever nada, graças ao "pular se não mudou" lá
+    // dentro), só pra concluir que nada muda. Pular a chamada inteira
+    // quando o zoom não mudou do último quadro aplicado é mais barato
+    // ainda: nem entra no loop.
+    if (lastAppliedAdminZoomRef.current !== pending) {
+      lastAppliedAdminZoomRef.current = pending;
+      applyAdminLabelFrame(pending);
+    }
   }, [applyAdminLabelFrame]);
   const handleZoomMove = useCallback(
     (z: number) => {
@@ -1857,19 +1868,6 @@ function WorldMapInner({
   // navegador tinha que reconstruir a máscara de recorte de até ~85
   // elementos a cada quadro do gesto de zoom, o que por si só já travava.
   // Aqui fica preso ao mesmo ritmo de adminBordersContent.
-  const adminLabelDefsContent = useMemo(() => {
-    if (adminLabelEntries.length === 0) return null;
-    return (
-      <defs>
-        {adminLabelEntries.map((e) => (
-          <clipPath key={`admin-clip-${e.id}`} id={`admin-label-clip-${e.id}`}>
-            <path d={e.layout.clipPath} />
-          </clipPath>
-        ))}
-      </defs>
-    );
-  }, [adminLabelEntries]);
-
   // Rótulos das divisões: ao contrário do rótulo de país (poucos visíveis
   // ao mesmo tempo, em geral), um país grande pode ter 40+ estados/
   // províncias visíveis ao mesmo tempo (EUA, Rússia, Brasil...) — e agora
@@ -1886,6 +1884,19 @@ function WorldMapInner({
   // ASSENTADO só pra já nascer no lugar certo antes do primeiro quadro;
   // dali em diante, todo quadro de um gesto contínuo atualiza esses
   // mesmos nós direto via ref, sem passar pelo React de novo.
+  //
+  // SEM clip-path por rótulo (ao contrário do nome de país, que tem —
+  // ver mapLabelsContent) — decisão deliberada de performance, não
+  // esquecimento. Cada <clipPath>+<path> era mais 2 nós SVG por rótulo,
+  // multiplicado por até centenas de divisões ativas ao mesmo tempo (4
+  // países, alguns com 80+ divisões cada) — pesava na hora do navegador
+  // recompor a tela a cada quadro de PAN ou zoom, mesmo sem nenhum
+  // atributo mudando (relatado como "trava até arrastando", não só
+  // zoomando). O `fontSize` já vem calculado como fração da MENOR
+  // dimensão da própria forma (ver computeCountryLabel) — na prática
+  // raramente vaza da divisão mesmo sem o cinturão de segurança extra;
+  // a troca é: raro vazamento visual num estado bem esquisito, contra
+  // travamento real e mensurável em todo lugar.
   const adminLabelsContent = useMemo(() => {
     if (adminLabelEntries.length === 0) return null;
     const screenPxPerSvgUnit = (mapWidthPx > 0 ? mapWidthPx / 800 : 1216 / 800) * zoom;
@@ -1902,43 +1913,38 @@ function WorldMapInner({
           return (
             <g
               key={`admin-label-${id}`}
-              clipPath={`url(#admin-label-clip-${id})`}
-              style={{ pointerEvents: "none" }}
+              ref={(el) => {
+                if (el) adminOpacityGroupRefs.current.set(id, el);
+                else adminOpacityGroupRefs.current.delete(id);
+              }}
+              transform={`translate(${layout.x} ${layout.y})`}
+              style={{
+                pointerEvents: "none",
+                opacity: visible ? (dimmed ? 0.22 : 0.82) : 0,
+                transition: "opacity 0.15s ease-out",
+              }}
             >
-              <g transform={`translate(${layout.x} ${layout.y})`}>
-                <g
-                  ref={(el) => {
-                    if (el) adminOpacityGroupRefs.current.set(id, el);
-                    else adminOpacityGroupRefs.current.delete(id);
-                  }}
-                  style={{
-                    opacity: visible ? (dimmed ? 0.22 : 0.82) : 0,
-                    transition: "opacity 0.15s ease-out",
-                  }}
-                >
-                  <text
-                    ref={(el) => {
-                      if (el) adminTextRefs.current.set(id, el);
-                      else adminTextRefs.current.delete(id);
-                    }}
-                    x={0}
-                    y={0}
-                    transform={layout.angle ? `rotate(${layout.angle})` : undefined}
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    fontSize={fontSizeSvg}
-                    fontWeight={600}
-                    letterSpacing={fontSizeSvg * 0.01}
-                    fill={lightBg ? "oklch(0.16 0.03 260 / 0.9)" : "oklch(0.93 0.012 90 / 0.85)"}
-                    stroke={lightBg ? "oklch(0.98 0.01 90 / 0.55)" : "oklch(0.09 0.02 260 / 0.5)"}
-                    strokeWidth={fontSizeSvg * 0.04}
-                    paintOrder="stroke"
-                    style={{ userSelect: "none" }}
-                  >
-                    {name}
-                  </text>
-                </g>
-              </g>
+              <text
+                ref={(el) => {
+                  if (el) adminTextRefs.current.set(id, el);
+                  else adminTextRefs.current.delete(id);
+                }}
+                x={0}
+                y={0}
+                transform={layout.angle ? `rotate(${layout.angle})` : undefined}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize={fontSizeSvg}
+                fontWeight={600}
+                letterSpacing={fontSizeSvg * 0.01}
+                fill={lightBg ? "oklch(0.16 0.03 260 / 0.9)" : "oklch(0.93 0.012 90 / 0.85)"}
+                stroke={lightBg ? "oklch(0.98 0.01 90 / 0.55)" : "oklch(0.09 0.02 260 / 0.5)"}
+                strokeWidth={fontSizeSvg * 0.04}
+                paintOrder="stroke"
+                style={{ userSelect: "none" }}
+              >
+                {name}
+              </text>
             </g>
           );
         })}
@@ -2009,7 +2015,6 @@ function WorldMapInner({
             {mapBaseContent}
             {mapLabelsContent}
             {adminBordersContent}
-            {adminLabelDefsContent}
             {adminLabelsContent}
           </ZoomableGroup>
         </ComposableMap>
