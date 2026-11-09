@@ -17,6 +17,7 @@ import { getVisibleCities, projectPoint, PROJECTION_SCALE, type CityWithCountry 
 import { useI18n } from "@/lib/i18n/context";
 import {
   computeCountryLabel,
+  computeAdminLabelVariants,
   geometryToPath,
   pointInPolygonRing,
   projectLngLat,
@@ -122,6 +123,20 @@ const MAX_ADMIN_LABEL_SCREEN_PX = 20;
 // funcionando em QUALQUER zoom, esse piso só afeta descoberta por
 // posição/zoom, sem seleção.
 const ADMIN1_MIN_ZOOM = 4;
+
+// Rótulo de divisão em 2 NÍVEIS por zoom, igual ao Google Maps: de mais
+// longe aparece só a SIGLA do estado/província ("SP", "TX"); ao aproximar
+// mais, ela dá lugar ao NOME COMPLETO. A troca vale pra TODAS as divisões
+// de TODOS os países ao mesmo tempo (depende só do zoom absoluto, nunca do
+// país) — por isso o mapa inteiro fica coerente. ADMIN1_FULLNAME_ZOOM é o
+// meio da faixa de zoom das divisões (4 → 16): cada nível ganha metade.
+const ADMIN1_FULLNAME_ZOOM = 8;
+// A troca sigla → nome é um fade no TEMPO (não amarrado ao valor do zoom):
+// ao cruzar ADMIN1_FULLNAME_ZOOM o texto é trocado com opacidade 0 e
+// reaparece por transição CSS — assim, onde quer que o zoom pare (botão,
+// pinça, scroll), o rótulo fica sempre nítido, nunca "meio apagado" por
+// estar no meio de uma faixa de transição.
+const ADMIN_LABEL_FADE_TRANSITION = "opacity 0.4s ease-out";
 
 // Quantos países no MÁXIMO ficam com divisões ativas ao mesmo tempo.
 // Baixar ADMIN1_MIN_ZOOM (pra aparecer mais cedo, tipo Google Maps) por
@@ -256,8 +271,11 @@ function pointInGeometry(point: [number, number], geometry: GeoGeometry): boolea
 
 interface AdminLabelEntry {
   id: string;
+  abbr: string;
   name: string;
-  layout: CountryLabelLayout;
+  /** Mesmo x/y/angle nos dois; só o fontSize difere (sigla cabe maior). */
+  abbrLayout: CountryLabelLayout;
+  fullLayout: CountryLabelLayout;
   countryCode: string;
 }
 
@@ -346,7 +364,10 @@ function WorldMapInner({
     Map<
       string,
       {
-        naturalFontSize: number;
+        abbrFontSize: number;
+        fullFontSize: number;
+        abbrText: string;
+        fullText: string;
         targetOpacity: number;
         // Último valor escrito no DOM — evita reescrever o mesmo `font-size`
         // (que força o navegador a remedir o texto) quadro após quadro
@@ -355,38 +376,82 @@ function WorldMapInner({
         // primeira escrita sempre.
         lastFontSize: number;
         lastOpacity: number;
+        // Qual texto está escrito no DOM agora (null = ainda nenhum, força
+        // a primeira escrita).
+        lastIsFull: boolean | null;
       }
     >
   >(new Map());
   const adminTextRefs = useRef<Map<string, SVGTextElement>>(new Map());
   const adminOpacityGroupRefs = useRef<Map<string, SVGGElement>>(new Map());
   const mapWidthPxRef = useRef(0);
+  const pendingFadeInIdsRef = useRef<Set<string>>(new Set());
+  const adminFadeRafRef = useRef<number | null>(null);
   const applyAdminLabelFrame = useCallback((zoomValue: number) => {
     const mw = mapWidthPxRef.current;
     const screenPxPerSvgUnit = (mw > 0 ? mw / 800 : 1216 / 800) * zoomValue;
     const screenCapSvg = MAX_ADMIN_LABEL_SCREEN_PX / screenPxPerSvgUnit;
+    // Nível (sigla/nome) depende só do zoom, não de cada rótulo.
+    const isFull = zoomValue >= ADMIN1_FULLNAME_ZOOM;
     for (const [id, meta] of adminLabelMetaRef.current) {
-      const fontSizeSvg = Math.min(meta.naturalFontSize, screenCapSvg);
+      const fontSizeSvg = Math.min(isFull ? meta.fullFontSize : meta.abbrFontSize, screenCapSvg);
       const apparentPx = fontSizeSvg * screenPxPerSvgUnit;
       const visible = apparentPx >= MIN_ADMIN_LABEL_SCREEN_PX;
       const opacity = visible ? meta.targetOpacity : 0;
       // Boa parte de um gesto de zoom bem fundo mantém a fonte já no teto
-      // (screenCapSvg) — nesse trecho fontSizeSvg NÃO muda quadro a
-      // quadro, só a posição/escala do <g> pai (que o ZoomableGroup já
-      // cuida sozinho via transform, de graça). Pular a escrita quando
-      // nada mudou evita fazer o navegador remedir texto (setAttribute
-      // de font-size é uma das operações mais caras aqui) centenas de
-      // vezes por gesto à toa.
-      if (meta.lastFontSize === fontSizeSvg && meta.lastOpacity === opacity) continue;
+      // (screenCapSvg) — nesse trecho nada muda quadro a quadro. Pular a
+      // escrita quando nada mudou evita fazer o navegador remedir texto
+      // (setAttribute de font-size é uma das operações mais caras aqui)
+      // centenas de vezes por gesto à toa.
+      if (meta.lastFontSize === fontSizeSvg && meta.lastOpacity === opacity && meta.lastIsFull === isFull) continue;
+      const textChanged = meta.lastIsFull !== isFull;
+      const wasWritten = meta.lastIsFull !== null;
       meta.lastFontSize = fontSizeSvg;
       meta.lastOpacity = opacity;
+      meta.lastIsFull = isFull;
       const textEl = adminTextRefs.current.get(id);
       const groupEl = adminOpacityGroupRefs.current.get(id);
       if (!textEl || !groupEl) continue;
-      groupEl.style.opacity = String(opacity);
+      // Troca de nível num rótulo que já estava escrito: some na hora (sem
+      // transição), troca o texto invisível e reaparece com fade no
+      // próximo quadro (ver rAF no fim desta função).
+      if (textChanged && wasWritten) {
+        groupEl.style.transition = "none";
+        groupEl.style.opacity = "0";
+        pendingFadeInIdsRef.current.add(id);
+      } else {
+        groupEl.style.opacity = String(opacity);
+      }
       textEl.setAttribute("font-size", String(fontSizeSvg));
       textEl.setAttribute("stroke-width", String(fontSizeSvg * 0.04));
       textEl.setAttribute("letter-spacing", String(fontSizeSvg * 0.01));
+      if (textChanged) {
+        // Escreve no MESMO nó de texto que o React criou (não troca o nó),
+        // pra o React continuar dono dele sem ficar com referência órfã.
+        const next = isFull ? meta.fullText : meta.abbrText;
+        if (textEl.firstChild) textEl.firstChild.nodeValue = next;
+        else textEl.textContent = next;
+      }
+    }
+    if (pendingFadeInIdsRef.current.size > 0 && adminFadeRafRef.current == null) {
+      adminFadeRafRef.current = requestAnimationFrame(() => {
+        adminFadeRafRef.current = null;
+        // Um único flush de estilo pro lote todo: garante que o navegador
+        // já "viu" opacity 0 antes de reativar a transição — senão a troca
+        // vinda de um clique de botão (sem quadro pintado no meio) viraria
+        // um pop em vez de um fade.
+        const first = pendingFadeInIdsRef.current.values().next().value;
+        const firstEl = first ? adminOpacityGroupRefs.current.get(first) : undefined;
+        if (firstEl) void getComputedStyle(firstEl).opacity;
+        for (const id of pendingFadeInIdsRef.current) {
+          const el = adminOpacityGroupRefs.current.get(id);
+          const m = adminLabelMetaRef.current.get(id);
+          if (!el || !m) continue;
+          el.style.transition = ADMIN_LABEL_FADE_TRANSITION;
+          el.style.opacity = String(m.lastOpacity);
+        }
+        pendingFadeInIdsRef.current.clear();
+      });
     }
   }, []);
 
@@ -750,8 +815,18 @@ function WorldMapInner({
         const divisions: TaggedAdminDivision[] = (raw ?? []).map((d) => ({ ...d, countryCode: code }));
         const labels: AdminLabelEntry[] = [];
         for (const d of divisions) {
-          const layout = computeCountryLabel(d.geometry, d.name);
-          if (layout) labels.push({ id: d.id, name: d.name, layout, countryCode: code });
+          const abbr = d.abbr || d.name;
+          const layouts = computeAdminLabelVariants(d.geometry, abbr, d.name);
+          if (layouts) {
+            labels.push({
+              id: d.id,
+              abbr,
+              name: d.name,
+              abbrLayout: layouts.abbr,
+              fullLayout: layouts.full,
+              countryCode: code,
+            });
+          }
         }
         adminCacheRef.current.set(code, { divisions, labels });
         if (cancelled) return;
@@ -792,17 +867,30 @@ function WorldMapInner({
   const adminLabelMeta = useMemo(() => {
     const map = new Map<
       string,
-      { naturalFontSize: number; targetOpacity: number; lastFontSize: number; lastOpacity: number }
+      {
+        abbrFontSize: number;
+        fullFontSize: number;
+        abbrText: string;
+        fullText: string;
+        targetOpacity: number;
+        lastFontSize: number;
+        lastOpacity: number;
+        lastIsFull: boolean | null;
+      }
     >();
     for (const e of adminLabelEntries) {
       const dimmed = isFiltered(byCca2.get(e.countryCode));
       // NaN garante que a primeira chamada de applyAdminLabelFrame depois
       // de um rótulo nascer sempre escreve (nunca é igual a NaN).
       map.set(e.id, {
-        naturalFontSize: e.layout.fontSize,
+        abbrFontSize: e.abbrLayout.fontSize,
+        fullFontSize: e.fullLayout.fontSize,
+        abbrText: e.abbr,
+        fullText: e.name,
         targetOpacity: dimmed ? 0.22 : 0.82,
         lastFontSize: NaN,
         lastOpacity: NaN,
+        lastIsFull: null,
       });
     }
     return map;
@@ -1901,10 +1989,13 @@ function WorldMapInner({
     if (adminLabelEntries.length === 0) return null;
     const screenPxPerSvgUnit = (mapWidthPx > 0 ? mapWidthPx / 800 : 1216 / 800) * zoom;
     const screenCapSvg = MAX_ADMIN_LABEL_SCREEN_PX / screenPxPerSvgUnit;
+    const isFull = zoom >= ADMIN1_FULLNAME_ZOOM;
     return (
       <>
         {adminLabelEntries.map((e) => {
-          const { layout, name, id, countryCode } = e;
+          const { id, countryCode } = e;
+          const layout = isFull ? e.fullLayout : e.abbrLayout;
+          const text = isFull ? e.name : e.abbr;
           const dimmed = isFiltered(byCca2.get(countryCode));
           const lightBg = isAdminOnLightBg(countryCode);
           const fontSizeSvg = Math.min(layout.fontSize, screenCapSvg);
@@ -1921,7 +2012,7 @@ function WorldMapInner({
               style={{
                 pointerEvents: "none",
                 opacity: visible ? (dimmed ? 0.22 : 0.82) : 0,
-                transition: "opacity 0.15s ease-out",
+                transition: ADMIN_LABEL_FADE_TRANSITION,
               }}
             >
               <text
@@ -1943,7 +2034,7 @@ function WorldMapInner({
                 paintOrder="stroke"
                 style={{ userSelect: "none" }}
               >
-                {name}
+                {text}
               </text>
             </g>
           );
