@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ComposableMap,
   Geographies,
@@ -9,11 +9,19 @@ import {
   ZoomableGroup,
 } from "react-simple-maps";
 import { AnimatePresence, motion } from "framer-motion";
-import { Minus, Plus, RotateCcw, MapPin, ChevronRight } from "lucide-react";
+import { Minus, Plus, RotateCcw, MapPin, ChevronRight, Satellite, Map as MapIcon } from "lucide-react";
 import type { Country } from "@/lib/countries";
 import { getPtName } from "@/lib/countries";
 import type { PassportStatus } from "@/lib/passport";
-import { getVisibleCities, projectPoint, PROJECTION_SCALE, type CityWithCountry } from "@/lib/cities";
+import {
+  getAllCities,
+  getVisibleCities,
+  projectPoint,
+  PROJECTION_SCALE,
+  type CityWithCountry,
+} from "@/lib/cities";
+import { deepZoomToSvgZoom, svgZoomToDeepZoom } from "@/lib/deepMapMath";
+import type { DeepMapHandle } from "./DeepMap";
 import { useI18n } from "@/lib/i18n/context";
 import {
   computeCountryLabel,
@@ -26,6 +34,15 @@ import {
   type GeoGeometry,
 } from "@/lib/countryLabels";
 import { fetchAdminDivisions, type AdminDivision } from "@/lib/adminDivisions";
+
+// Mapa de tiles (MapLibre + imagem de satélite da Esri) — carregado só
+// quando a pessoa chega nele (aproxima além do limite do mapa vetorial ou
+// liga o satélite), pra não pesar no carregamento inicial.
+const DeepMap = lazy(() => import("./DeepMap"));
+const DEEP_MAX_ZOOM = 20;
+// Zoom mínimo do mapa de tiles em relação ao zoom em que ele entrou: abaixo
+// disso a gente volta pro mapa vetorial (zoom out natural, sem botão extra).
+const DEEP_EXIT_BELOW_ENTRY = 1.0;
 
 const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
@@ -576,6 +593,10 @@ function WorldMapInner({
   // When selected changes externally (e.g. via search), fly to it.
   useEffect(() => {
     if (!selectedCountry?.latlng) return;
+    if (deepRef.current) {
+      deepApiRef.current?.flyTo(selectedCountry.latlng[1], selectedCountry.latlng[0], 5);
+      return;
+    }
     setCenter([selectedCountry.latlng[1], selectedCountry.latlng[0]]);
     setZoom((z) => Math.max(z, 3.2));
   }, [selectedCountry]);
@@ -584,20 +605,105 @@ function WorldMapInner({
   // pra mais perto dela, além do zoom de país já aplicado acima.
   useEffect(() => {
     if (!focusCity) return;
+    if (deepRef.current) {
+      deepApiRef.current?.flyTo(focusCity.lng, focusCity.lat, 11);
+      return;
+    }
     setCenter([focusCity.lng, focusCity.lat]);
     setZoom((z) => Math.max(z, 6));
   }, [focusCity]);
 
   const atHome = zoom === 1 && center[0] === HOME_CENTER[0] && center[1] === HOME_CENTER[1];
 
+  const closeDeepImmediately = () => {
+    if (deepCloseTimerRef.current != null) window.clearTimeout(deepCloseTimerRef.current);
+    deepCloseTimerRef.current = null;
+    deepViewRef.current = null;
+    setDeepClosing(false);
+    setDeep(null);
+  };
+
   const reset = () => {
+    closeDeepImmediately();
     setZoom(1);
     setCenter(HOME_CENTER);
     setMapInstanceKey((k) => k + 1);
   };
 
-  const zoomIn = () => setZoom((z) => Math.min(z * 1.6, effectiveMaxZoom));
-  const zoomOut = () => setZoom((z) => Math.max(z / 1.6, MIN_ZOOM));
+  // Entra no mapa de tiles NA MESMA ESCALA em que o vetorial está (ver
+  // deepMapMath.ts) — o fade parece só o mapa ganhando detalhe. Pelo botão
+  // de satélite a partir da visão do mundo, nasce numa escala mínima legível.
+  const enterDeep = (satellite: boolean) => {
+    if (deepRef.current) return;
+    const mw = mapWidthPx || 1216;
+    const equivalent = svgZoomToDeepZoom(zoom, center[1], mw);
+    const z = satellite ? Math.max(equivalent, 1.4) : equivalent;
+    deepViewRef.current = { center, zoom: z };
+    if (deepCloseTimerRef.current != null) window.clearTimeout(deepCloseTimerRef.current);
+    setDeepClosing(false);
+    setDeepBadge("");
+    setDeep({ center, zoom: z, entryZoom: z, satellite });
+  };
+
+  // Volta pro vetorial já posicionado onde o mapa de tiles parou — o
+  // vetorial por baixo "pula" pra lá enquanto o de tiles ainda está opaco e
+  // some em fade, então não se vê salto nenhum.
+  const exitDeep = () => {
+    const view = deepViewRef.current;
+    if (!deepRef.current || !view || deepCloseTimerRef.current != null) return;
+    const mw = mapWidthPx || 1216;
+    const svgZoom = Math.min(
+      effectiveMaxZoom,
+      Math.max(MIN_ZOOM, deepZoomToSvgZoom(view.zoom, view.center[1], mw)),
+    );
+    setCenter(view.center);
+    setZoom(svgZoom);
+    setDeepClosing(true);
+    deepCloseTimerRef.current = window.setTimeout(closeDeepImmediately, 700);
+  };
+
+  const handleDeepView = useCallback(
+    (c: [number, number], z: number) => {
+      const d = deepRef.current;
+      if (!d) return;
+      deepViewRef.current = { center: c, zoom: z };
+      const mw = mapWidthPxRef.current || 1216;
+      const mag = deepZoomToSvgZoom(z, c[1], mw);
+      setDeepBadge(mag >= 1000 ? `${(mag / 1000).toFixed(1)}k×` : mag >= 100 ? `${Math.round(mag)}×` : `${mag.toFixed(1)}×`);
+      if (z < d.entryZoom - DEEP_EXIT_BELOW_ENTRY) exitDeepRef.current();
+    },
+    [],
+  );
+  const exitDeepRef = useRef(exitDeep);
+  exitDeepRef.current = exitDeep;
+
+  const toggleSatellite = () => {
+    if (!deepRef.current) {
+      enterDeep(true);
+      return;
+    }
+    setDeep((d) => (d ? { ...d, satellite: !d.satellite } : d));
+  };
+
+  const zoomIn = () => {
+    if (deepRef.current) {
+      deepApiRef.current?.zoomBy(1);
+      return;
+    }
+    // Já no teto do mapa vetorial: continua aproximando no mapa de tiles.
+    if (zoom >= effectiveMaxZoom - 0.001) {
+      enterDeep(false);
+      return;
+    }
+    setZoom((z) => Math.min(z * 1.6, effectiveMaxZoom));
+  };
+  const zoomOut = () => {
+    if (deepRef.current) {
+      deepApiRef.current?.zoomBy(-1);
+      return;
+    }
+    setZoom((z) => Math.max(z / 1.6, MIN_ZOOM));
+  };
 
   // --- Tooltip: posição via DOM direto, sem tocar no estado do React a cada
   // pixel do mouse. Isso é o que fazia o mapa inteiro ser reconstruído em
@@ -622,6 +728,22 @@ function WorldMapInner({
   // do container, dá pra calcular quantas "unidades do viewBox" equivalem a
   // um alvo de X pixels de tela de verdade, não importa o tamanho da tela.
   const [mapWidthPx, setMapWidthPx] = useState(0);
+  // Mapa de tiles/satélite por cima do vetorial (ver DeepMap.tsx). `entryZoom`
+  // é o zoom Mercator em que entrou — base do "volta pro vetorial ao afastar".
+  const [deep, setDeep] = useState<{
+    center: [number, number];
+    zoom: number;
+    entryZoom: number;
+    satellite: boolean;
+  } | null>(null);
+  const [deepClosing, setDeepClosing] = useState(false);
+  const [deepBadge, setDeepBadge] = useState("");
+  const deepRef = useRef(deep);
+  deepRef.current = deep;
+  const deepViewRef = useRef<{ center: [number, number]; zoom: number } | null>(null);
+  const deepApiRef = useRef<DeepMapHandle | null>(null);
+  const deepCloseTimerRef = useRef<number | null>(null);
+  const allCities = useMemo(() => getAllCities(), []);
   useEffect(() => {
     const measure = () => {
       if (wrapRef.current) setMapWidthPx(wrapRef.current.getBoundingClientRect().width);
@@ -926,6 +1048,22 @@ function WorldMapInner({
   // dê pra "compensar" apertando mais o zoom até esse cluster se abrir e
   // isolar cada país, do jeito que já acontecia naturalmente no desktop.
   const effectiveMaxZoom = MAX_ZOOM * sizeScale;
+
+  const enterDeepRef = useRef(enterDeep);
+  enterDeepRef.current = enterDeep;
+  // Rolar pra aproximar JÁ no teto do mapa vetorial continua aproximando —
+  // agora no mapa de tiles, sem a pessoa precisar achar botão nenhum.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (deepRef.current || e.deltaY >= 0) return;
+      if (zoom >= effectiveMaxZoom - 0.05) enterDeepRef.current(false);
+    };
+    el.addEventListener("wheel", onWheel, { passive: true });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [zoom, effectiveMaxZoom]);
+
 
   // Traços finos e constantes em qualquer nível de zoom — mas "constante"
   // aqui também precisa ser em pixels de TELA de verdade, não em unidades
@@ -2111,6 +2249,22 @@ function WorldMapInner({
         </ComposableMap>
       )}
 
+      {deep && (
+        <Suspense fallback={null}>
+          <DeepMap
+            initialCenter={deep.center}
+            initialZoom={deep.zoom}
+            minZoom={Math.max(0, deep.entryZoom - DEEP_EXIT_BELOW_ENTRY - 0.15)}
+            satellite={deep.satellite}
+            closing={deepClosing}
+            cities={allCities}
+            onCityClick={(c) => onSelectCity?.(c)}
+            onViewChange={handleDeepView}
+            apiRef={deepApiRef}
+          />
+        </Suspense>
+      )}
+
       {/* Vinheta / brilho de borda */}
       <div
         aria-hidden
@@ -2142,18 +2296,34 @@ function WorldMapInner({
       </AnimatePresence>
 
       {/* Controles */}
-      <div className="absolute right-3 top-3 flex flex-col items-center gap-1.5">
+      <div className="absolute right-3 top-3 z-20 flex flex-col items-center gap-1.5">
         <div className="flex flex-col overflow-hidden rounded-full border border-border bg-surface/80 shadow-card backdrop-blur">
-          <ControlBtn label={t("mapZoomIn")} onClick={zoomIn} disabled={zoom >= effectiveMaxZoom - 0.001}>
+          <ControlBtn
+            label={t("mapZoomIn")}
+            onClick={zoomIn}
+            disabled={deep ? (deepViewRef.current?.zoom ?? 0) >= DEEP_MAX_ZOOM - 0.05 : false}
+          >
             <Plus className="h-4 w-4" />
           </ControlBtn>
           <span aria-hidden className="mx-auto h-px w-5 bg-border" />
-          <ControlBtn label={t("mapZoomOut")} onClick={zoomOut} disabled={zoom <= MIN_ZOOM + 0.001}>
+          <ControlBtn label={t("mapZoomOut")} onClick={zoomOut} disabled={!deep && zoom <= MIN_ZOOM + 0.001}>
             <Minus className="h-4 w-4" />
           </ControlBtn>
         </div>
+        <button
+          type="button"
+          onClick={toggleSatellite}
+          aria-label={deep?.satellite ? t("mapStreet") : t("mapSatellite")}
+          aria-pressed={!!deep?.satellite}
+          title={deep?.satellite ? t("mapStreet") : t("mapSatellite")}
+          className={`grid h-10 w-10 place-items-center rounded-full border bg-surface/80 shadow-card backdrop-blur transition-colors hover:border-primary/50 hover:text-primary sm:h-9 sm:w-9 ${
+            deep?.satellite ? "border-primary/60 text-primary" : "border-border text-muted-foreground"
+          }`}
+        >
+          {deep?.satellite ? <MapIcon className="h-4 w-4" /> : <Satellite className="h-4 w-4" />}
+        </button>
         <AnimatePresence>
-          {!atHome && (
+          {(!atHome || deep) && (
             <motion.button
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -2167,14 +2337,14 @@ function WorldMapInner({
           )}
         </AnimatePresence>
         <AnimatePresence>
-          {zoom > 1.05 && (
+          {(deep ? deepBadge !== "" : zoom > 1.05) && (
             <motion.span
               initial={{ opacity: 0, y: -4 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               className="rounded-full border border-border bg-surface/80 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground backdrop-blur"
             >
-              {zoom.toFixed(1)}×
+              {deep ? deepBadge : `${zoom.toFixed(1)}×`}
             </motion.span>
           )}
         </AnimatePresence>
