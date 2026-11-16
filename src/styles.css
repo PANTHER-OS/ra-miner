@@ -249,3 +249,16 @@ html {
   background-size: 800px 100%;
   animation: shimmer 1.8s linear infinite;
 }
+
+/* Cidades menores (lugares extras) entram com fade em CSS — leve, sem JS. */
+@keyframes extra-city-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.extra-city {
+  animation: extra-city-in 0.5s ease-out both;
+}

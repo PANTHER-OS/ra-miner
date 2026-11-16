@@ -182,10 +182,18 @@ const MAX_FONT = 60; // teto generoso; o cap de tela em WorldMap.tsx já evita t
 const ELONGATION_THRESHOLD = 1.7; // a partir daqui, "vale a pena" girar o texto
 const MIN_ROTATION_DEG = 12; // ângulos pequenos demais não valem o efeito colateral
 
-export function computeCountryLabel(
-  geometry: GeoGeometry,
-  name: string,
-): CountryLabelLayout | null {
+interface LabelGeometryInfo {
+  x: number;
+  y: number;
+  angle: number;
+  availableWidth: number;
+  availableHeight: number;
+}
+
+// Parte cara (polylabel + eixo principal) — depende só da FORMA, não do
+// texto. Separada pra um mesmo polígono poder ganhar mais de um tamanho de
+// fonte sem repetir esse cálculo (ver computeAdminLabelVariants).
+function computeLabelGeometryInfo(geometry: GeoGeometry): LabelGeometryInfo | null {
   const ring = largestOuterRingScreen(geometry);
   if (!ring || ring.length < 3) return null;
 
@@ -227,17 +235,48 @@ export function computeCountryLabel(
     : Math.min(w, point.distance * 4.6);
   const availableHeight = rotate ? point.distance * 1.6 : h;
 
-  const byHeight = availableHeight * 0.32;
-  const byWidth =
-    (availableWidth * WIDTH_SAFETY_MARGIN) / (Math.max(name.length, 1) * APPROX_CHAR_WIDTH_FACTOR);
-  const fontSize = Math.max(MIN_FONT, Math.min(MAX_FONT, byHeight, byWidth));
+  return { x, y, angle, availableWidth, availableHeight };
+}
 
+function fontSizeForAvailableSpace(name: string, info: LabelGeometryInfo): number {
+  const byHeight = info.availableHeight * 0.32;
+  const byWidth =
+    (info.availableWidth * WIDTH_SAFETY_MARGIN) / (Math.max(name.length, 1) * APPROX_CHAR_WIDTH_FACTOR);
+  return Math.max(MIN_FONT, Math.min(MAX_FONT, byHeight, byWidth));
+}
+
+export function computeCountryLabel(
+  geometry: GeoGeometry,
+  name: string,
+): CountryLabelLayout | null {
+  const info = computeLabelGeometryInfo(geometry);
+  if (!info) return null;
   return {
-    x,
-    y,
-    fontSize,
-    angle,
+    x: info.x,
+    y: info.y,
+    fontSize: fontSizeForAvailableSpace(name, info),
+    angle: info.angle,
     clipPath: pathGenerator(geometry as never) ?? "",
+  };
+}
+
+/** Rótulo de divisão (estado/província) em 2 níveis por zoom: a sigla
+ * ("SP") e o nome completo ("São Paulo") nascem no MESMO ponto e ângulo —
+ * só o tamanho de fonte muda (a sigla é bem mais curta, então cabe maior).
+ * A parte cara roda uma vez só. Sem clipPath (vazio): rótulo de divisão
+ * nunca usa clip-path (ver WorldMap.tsx), então gerar o `d` do contorno das
+ * ~4600 divisões do mundo seria desperdício puro. */
+export function computeAdminLabelVariants(
+  geometry: GeoGeometry,
+  abbr: string,
+  fullName: string,
+): { abbr: CountryLabelLayout; full: CountryLabelLayout } | null {
+  const info = computeLabelGeometryInfo(geometry);
+  if (!info) return null;
+  const base = { x: info.x, y: info.y, angle: info.angle, clipPath: "" };
+  return {
+    abbr: { ...base, fontSize: fontSizeForAvailableSpace(abbr, info) },
+    full: { ...base, fontSize: fontSizeForAvailableSpace(fullName, info) },
   };
 }
 
@@ -257,6 +296,14 @@ export function geometryToPath(geometry: GeoGeometry): string {
  * "qual país está bem no meio"). */
 export function projectLngLat(lng: number, lat: number): [number, number] | null {
   return projection([lng, lat]) as [number, number] | null;
+}
+
+/** Inverso de projectLngLat: de um ponto no espaço 0-800 x 0-600 (o mesmo
+ * em que as formas são desenhadas) pra [lng, lat]. Usado pra descobrir em
+ * qual estado/província a pessoa clicou. */
+export function unprojectPoint(x: number, y: number): [number, number] | null {
+  const r = projection.invert?.([x, y]);
+  return r && Number.isFinite(r[0]) && Number.isFinite(r[1]) ? [r[0], r[1]] : null;
 }
 
 /** Bounding box de uma geometria inteira, já projetada pro mesmo espaço

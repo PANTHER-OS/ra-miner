@@ -68,6 +68,9 @@ export function findCityBySlug(
 // principais" (só aparece com mais zoom). `px`/`py` é a posição já
 // projetada, pra filtrar por área visível sem reprojetar em todo render.
 export interface CityWithCountry extends CityEntry {
+  /** true = lugar extra (GeoNames, sem painel próprio) que só aparece de
+   * muito perto, ordenado por população — ver getVisibleCities. */
+  extra?: boolean;
   cca2: string;
   rank: number;
   px: number;
@@ -107,6 +110,8 @@ export function getVisibleCities(
   zoom: number,
   maxRank: number,
   limit = 60,
+  extras?: CityWithCountry[],
+  minExtraPop = Infinity,
 ): CityWithCountry[] {
   const halfW = 400 / zoom;
   const halfH = 300 / zoom;
@@ -119,6 +124,20 @@ export function getVisibleCities(
     (c) => c.rank <= maxRank && c.px >= minX && c.px <= maxX && c.py >= minY && c.py <= maxY,
   );
   inView.sort((a, b) => a.rank - b.rank);
+  if (extras && minExtraPop < Infinity) {
+    // Cidades do app primeiro (têm painel); o resto da vaga é preenchido
+    // pelos lugares extras do mais populoso pro menos.
+    const more = extras
+      .filter(
+        (c) =>
+          (c.pop ?? 0) >= minExtraPop && c.px >= minX && c.px <= maxX && c.py >= minY && c.py <= maxY,
+      )
+      .sort((a, b) => (b.pop ?? 0) - (a.pop ?? 0))
+      // Teto próprio dos extras: eles só enfeitam, o que importa são as
+      // cidades do app (com painel) acima.
+      .slice(0, 26);
+    return [...inView, ...more].slice(0, limit);
+  }
   return inView.slice(0, limit);
 }
 

@@ -21,13 +21,32 @@ import type { GeoGeometry } from "./countryLabels";
 export interface AdminDivision {
   id: string;
   name: string;
+  /** Sigla curta (2-4 letras, ex: "SP", "TX") — sigla postal oficial da
+   * fonte quando existe, senão derivada do nome; já sem colisão dentro do
+   * mesmo país. É o PRIMEIRO nível do rótulo (aparece antes do nome
+   * completo ao aproximar, igual ao Google Maps). */
+  abbr: string;
   geometry: GeoGeometry;
 }
 
 interface RawFeature {
   type: "Feature";
-  properties: { id: string; name: string };
+  properties: { id: string; name: string; abbr?: string };
   geometry: GeoGeometry;
+}
+
+// Siglas (e poucas correções de nome da fonte) num arquivo único e pequeno,
+// aplicado por cima dos arquivos por país — por índice da feature. Se falhar
+// ao carregar, o rótulo cai pro nome (sem sigla), nunca quebra o mapa.
+type AdminMeta = Record<string, { a: string[]; n?: Record<string, string> }>;
+let metaPromise: Promise<AdminMeta> | null = null;
+function loadAdminMeta(): Promise<AdminMeta> {
+  if (!metaPromise) {
+    metaPromise = fetch("/admin1-meta.json")
+      .then((r) => (r.ok ? (r.json() as Promise<AdminMeta>) : {}))
+      .catch(() => ({}));
+  }
+  return metaPromise;
 }
 
 const cache = new Map<string, AdminDivision[] | null>();
@@ -49,13 +68,19 @@ export async function fetchAdminDivisions(cca2: string): Promise<AdminDivision[]
         return null;
       }
       const geojson = (await res.json()) as { features: RawFeature[] };
+      const meta = (await loadAdminMeta())[key];
       const divisions: AdminDivision[] = geojson.features
-        .filter((f) => f.properties?.name)
-        .map((f, i) => ({
-          id: `${key}-${i}`,
-          name: f.properties.name,
-          geometry: f.geometry,
-        }));
+        .map((f, rawIndex) => ({ f, rawIndex }))
+        .filter(({ f }) => f.properties?.name)
+        .map(({ f, rawIndex }, i) => {
+          const name = meta?.n?.[String(rawIndex)] ?? f.properties.name;
+          return {
+            id: `${key}-${i}`,
+            name,
+            abbr: meta?.a?.[rawIndex] || f.properties.abbr || name,
+            geometry: f.geometry,
+          };
+        });
       cache.set(key, divisions);
       return divisions;
     } catch {

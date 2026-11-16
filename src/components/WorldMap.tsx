@@ -13,27 +13,155 @@ import { Minus, Plus, RotateCcw, MapPin, ChevronRight } from "lucide-react";
 import type { Country } from "@/lib/countries";
 import { getPtName } from "@/lib/countries";
 import type { PassportStatus } from "@/lib/passport";
-import { getVisibleCities, projectPoint, PROJECTION_SCALE, type CityWithCountry } from "@/lib/cities";
+import {
+  getAllCities,
+  getVisibleCities,
+  projectPoint,
+  PROJECTION_SCALE,
+  type CityWithCountry,
+} from "@/lib/cities";
 import { useI18n } from "@/lib/i18n/context";
 import {
   computeCountryLabel,
+  computeAdminLabelVariants,
   geometryToPath,
   pointInPolygonRing,
   projectLngLat,
   projectedBounds,
+  unprojectPoint,
   type CountryLabelLayout,
   type GeoGeometry,
 } from "@/lib/countryLabels";
 import { fetchAdminDivisions, type AdminDivision } from "@/lib/adminDivisions";
+import { findDivisionAt, pointInGeometry } from "@/lib/geometryHit";
+import { getPlacesForCountry } from "@/lib/places";
+import { computeInteriorLines } from "@/lib/adminBorders";
+import { AdminDivisionCard, type SelectedDivision } from "./AdminDivisionCard";
 
 const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
+
+// Contorno de maior resolução (50m) só pro DESENHO dos países quando a pessoa
+// aproxima: o mapa-base de 110m é leve (ótimo de longe), mas de perto as
+// costas e fronteiras viram poucos segmentos retos. Trocar o `svgPath` de
+// cada país mantém tudo o mais igual — mesmo hover, clique, rótulos, cores —
+// só o traçado ganha detalhe, sem o mapa "mudar".
+const GEO_URL_DETAIL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json";
+const DETAIL_PRELOAD_ZOOM = 2.5;
+const DETAIL_USE_ZOOM = 5;
+// Terceiro nível (10m, ~3,6 MB) pro zoom extremo — baixado em segundo plano
+// só quando a pessoa já está bem perto, e usado a partir de DETAIL_FINE_USE_ZOOM.
+const GEO_URL_FINE = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-10m.json";
+const DETAIL_FINE_PRELOAD_ZOOM = 10;
+const DETAIL_FINE_USE_ZOOM = 24;
+
+interface DetailShape {
+  d: string;
+  b: [[number, number], [number, number]];
+}
+/** Resultado de um nível de detalhe: o traçado de cada país + as FRONTEIRAS
+ * entre países, já picotadas em "ladrilhos" (ver loadDetailPaths). */
+interface DetailSet {
+  shapes: Map<string, DetailShape>;
+  borders: DetailShape[];
+}
+
+// Baixa um TopoJSON de países e devolve ccn3 (sem zeros) -> `d` do traçado,
+// gerado em lotes pra não travar a tela. `embedded` são os países da nossa
+// lista cuja terra o mapa desenha como "ilha" dentro de OUTRO país (Guiana
+// Francesa na França...): o pedaço deles é subtraído do país hospedeiro aqui
+// também, igual ao traçado leve (ver strippedPaths) — senão a França ficaria
+// com o contorno antigo e destoaria dos vizinhos já refinados.
+async function loadDetailPaths(
+  url: string,
+  embedded: Country[],
+  isCancelled: () => boolean,
+): Promise<DetailSet | null> {
+  const [topo, res] = await Promise.all([import("topojson-client"), fetch(url)]);
+  const topology = (await res.json()) as { objects: Record<string, unknown> };
+  const fc = topo.feature(topology, topology.objects.countries) as {
+    features: { id?: string | number; geometry: GeoGeometry | null }[];
+  };
+  const out = new Map<string, DetailShape>();
+  const KM_PER_DEG = 111;
+  for (let i = 0; i < fc.features.length; i += 6) {
+    if (isCancelled()) return null;
+    for (const f of fc.features.slice(i, i + 6)) {
+      if (f.id == null || !f.geometry) continue;
+      let geometry = f.geometry;
+      const geo = geometry as unknown as { type: string; coordinates: unknown };
+      if (geo.type === "MultiPolygon" && embedded.length > 0) {
+        const polys = geo.coordinates as [number, number][][][];
+        const kept = polys.filter((poly) => {
+          const outer = poly[0];
+          if (!outer || outer.length < 3) return true;
+          let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+          for (const [lng, lat] of outer) {
+            if (lng < minLng) minLng = lng;
+            if (lng > maxLng) maxLng = lng;
+            if (lat < minLat) minLat = lat;
+            if (lat > maxLat) maxLat = lat;
+          }
+          const ringAreaKm2 = (maxLng - minLng) * (maxLat - minLat) * KM_PER_DEG * KM_PER_DEG;
+          return !embedded.some((c) => {
+            if (!c.latlng || !c.area || !c.ccn3) return false;
+            if (String(Number(c.ccn3)) === String(Number(f.id))) return false;
+            if (ringAreaKm2 > c.area * 6) return false;
+            return pointInPolygonRing([c.latlng[1], c.latlng[0]], outer);
+          });
+        });
+        if (kept.length !== polys.length && kept.length > 0) {
+          geometry = { type: "MultiPolygon", coordinates: kept };
+        }
+      }
+      const d = geometryToPath(geometry);
+      if (d) out.set(String(Number(f.id)), { d, b: projectedBounds(geometry) });
+    }
+    await new Promise((r) => requestAnimationFrame(r));
+  }
+
+  // Fronteiras entre países: uma linha só, desenhada por cima das formas — é
+  // o que mantém cada país "demarcado" em qualquer zoom (sem ela, de bem perto
+  // a divisa entre dois países sumia: antes o vão escuro entre as formas fazia
+  // esse papel, e preencher o vão tirou a marcação). Picotada em ladrilhos de
+  // ~6° pra desenhar só os que estão na tela — um único caminho com o mundo
+  // inteiro seria reprocessado inteiro a cada quadro.
+  const borders: DetailShape[] = [];
+  if (!isCancelled()) {
+    const line = topo.mesh(topology, topology.objects.countries, (a: unknown, b: unknown) => a !== b) as {
+      coordinates: [number, number][][];
+    };
+    const CELL = 6;
+    const SEG = 24;
+    const cells = new Map<string, [number, number][][]>();
+    for (const ln of line.coordinates) {
+      for (let i = 0; i < ln.length - 1; i += SEG) {
+        const seg = ln.slice(i, i + SEG + 1);
+        const key = `${Math.floor((seg[0][0] + 180) / CELL)}:${Math.floor((seg[0][1] + 90) / CELL)}`;
+        const arr = cells.get(key);
+        if (arr) arr.push(seg);
+        else cells.set(key, [seg]);
+      }
+    }
+    let n = 0;
+    for (const segs of cells.values()) {
+      const geometry = { type: "MultiLineString", coordinates: segs } as unknown as GeoGeometry;
+      const d = geometryToPath(geometry);
+      if (d) borders.push({ d, b: projectedBounds(geometry) });
+      if (++n % 40 === 0) await new Promise((r) => requestAnimationFrame(r));
+      if (isCancelled()) return null;
+    }
+  }
+  return { shapes: out, borders };
+}
 
 const MIN_ZOOM = 1;
 // Antes ia só até 8x — em regiões com muitos países pequenos e próximos
 // (Caribe, Bálcãs, Golfo Pérsico...) isso não deixava zoom suficiente pra
 // separar um país do outro com o dedo/mouse. 16x dá bastante margem pra
-// isolar qualquer país individualmente antes de tocar.
-const MAX_ZOOM = 16;
+// isolar qualquer país individualmente antes de tocar. Depois subiu pra 64x:
+// com estados/províncias e cidades no mapa, dá pra chegar bem perto de uma
+// região (o desenho segue o MESMO mapa — só ganha mais detalhe, nunca troca).
+const MAX_ZOOM = 400;
 // [0, 0] (Greenwich/equador) é o único ponto que a projeção já posiciona
 // exatamente no centro geométrico da viewBox (400, 300 numa caixa de
 // 800x600), sem precisar de nenhum deslocamento extra. Qualquer outro valor
@@ -55,6 +183,30 @@ function maxCityRankForZoom(zoom: number): number {
   if (zoom < 4.5) return 3; // zoom de quando um país é selecionado (3.2) cai aqui
   if (zoom < 6) return 5;
   return 9; // tudo que tiver disponível
+}
+// População mínima pra um lugar EXTRA (GeoNames, ver extraCities) aparecer em
+// cada zoom — como nos apps de mapa: de longe só as metrópoles, e cada vez
+// que se aproxima, cidades menores vão "nascendo". Abaixo de 6× só valem as
+// cidades curadas do app.
+function minExtraPopForZoom(zoom: number, compact: boolean): number {
+  // Tela pequena: marcadores e nomes são maiores (alvo de toque) e o espaço é
+  // pouco — só cidades maiores, pros nomes de estado/província terem lugar.
+  const f = compact ? 2.5 : 1;
+  if (zoom < 6) return Infinity;
+  if (zoom < 10) return 500_000 * f;
+  if (zoom < 16) return 150_000 * f;
+  if (zoom < 26) return 60_000 * f;
+  if (zoom < 45) return 30_000 * f;
+  return compact ? 40_000 : 0;
+}
+// Tamanho do nome e do ponto proporcionais à população (grande = maior).
+function cityScaleByPop(c: { pop?: number; extra?: boolean }): number {
+  if (!c.extra) return 1;
+  const p = c.pop ?? 0;
+  if (p >= 1_000_000) return 1.2;
+  if (p >= 300_000) return 1.1;
+  if (p >= 100_000) return 1;
+  return 0.9;
 }
 const CITY_MARKER_LIMIT = 60; // teto defensivo pra não poluir em regiões muito densas
 
@@ -103,8 +255,12 @@ const MAX_LABEL_SCREEN_PX = 38;
 // do país) e nunca cresce tanto quanto o nome do país em si (max bem
 // menor) — ajuda a ler a hierarquia visual (país sempre "manda" mais que
 // a divisão interna dele) mesmo os dois aparecendo juntos na tela.
-const MIN_ADMIN_LABEL_SCREEN_PX = 9;
-const MAX_ADMIN_LABEL_SCREEN_PX = 20;
+const MIN_ADMIN_LABEL_SCREEN_PX = 10;
+// Teto de tamanho de um nome de estado/província na tela. Antes era 20px — de
+// perto os nomes ficavam enormes e se atropelavam; atlas e apps de mapa
+// (Apple Maps, Google) mantêm nome de região em ~12-15px e deixam o ZOOM
+// revelar mais nomes, em vez de aumentar os mesmos.
+const MAX_ADMIN_LABEL_SCREEN_PX = 15;
 
 // Zoom mínimo (bruto, mesma unidade do badge "×" no canto do mapa) a
 // partir do qual vale a pena perguntar "que países estão pegando na
@@ -122,6 +278,26 @@ const MAX_ADMIN_LABEL_SCREEN_PX = 20;
 // funcionando em QUALQUER zoom, esse piso só afeta descoberta por
 // posição/zoom, sem seleção.
 const ADMIN1_MIN_ZOOM = 4;
+// Tamanho de fonte fixo do texto dos nomes de região; o tamanho na tela vem da
+// escala do <g> de cada nome (ver applyAdminLabelFrame).
+const ADMIN_LABEL_BASE_FONT_PX = 15;
+// A partir daqui, país com divisões carregadas perde o nome em cima do
+// território (os estados/províncias assumem a tela).
+const COUNTRY_NAME_HIDE_ZOOM = 12;
+
+// Rótulo de divisão em 2 NÍVEIS por zoom, igual ao Google Maps: de mais
+// longe aparece só a SIGLA do estado/província ("SP", "TX"); ao aproximar
+// mais, ela dá lugar ao NOME COMPLETO. A troca vale pra TODAS as divisões
+// de TODOS os países ao mesmo tempo (depende só do zoom absoluto, nunca do
+// país) — por isso o mapa inteiro fica coerente. ADMIN1_FULLNAME_ZOOM é o
+// meio da faixa de zoom das divisões (4 → 16): cada nível ganha metade.
+const ADMIN1_FULLNAME_ZOOM = 8;
+// A troca sigla → nome é um fade no TEMPO (não amarrado ao valor do zoom):
+// ao cruzar ADMIN1_FULLNAME_ZOOM o texto é trocado com opacidade 0 e
+// reaparece por transição CSS — assim, onde quer que o zoom pare (botão,
+// pinça, scroll), o rótulo fica sempre nítido, nunca "meio apagado" por
+// estar no meio de uma faixa de transição.
+const ADMIN_LABEL_FADE_TRANSITION = "opacity 0.4s ease-out";
 
 // Quantos países no MÁXIMO ficam com divisões ativas ao mesmo tempo.
 // Baixar ADMIN1_MIN_ZOOM (pra aparecer mais cedo, tipo Google Maps) por
@@ -233,32 +409,18 @@ interface CountryLabelEntry {
   bounds: [[number, number], [number, number]];
 }
 
-/** Mesmo teste ponto-em-polígono usado pra achar território "engolido"
- * (ver comentário grande mais abaixo), só que aqui pra outra coisa:
- * achar em qual país o CENTRO atual do mapa cai — usado pra mostrar as
- * divisões internas de um país só de dar zoom nele, sem precisar
- * selecionar/abrir o card (ver zoomedCountryCode). Testa só o anel
- * externo de cada polígono (ignora buracos internos) — aproximação
- * aceitável pro que isso decide (não precisa de precisão de fronteira,
- * só "mais ou menos que país é esse"). */
-function pointInGeometry(point: [number, number], geometry: GeoGeometry): boolean {
-  const geo = geometry as unknown as { type: string; coordinates: unknown };
-  if (geo.type === "Polygon") {
-    const rings = geo.coordinates as [number, number][][];
-    return rings.length > 0 && pointInPolygonRing(point, rings[0]);
-  }
-  if (geo.type === "MultiPolygon") {
-    const polys = geo.coordinates as [number, number][][][];
-    return polys.some((poly) => poly.length > 0 && pointInPolygonRing(point, poly[0]));
-  }
-  return false;
-}
-
 interface AdminLabelEntry {
   id: string;
+  abbr: string;
   name: string;
-  layout: CountryLabelLayout;
+  /** Mesmo x/y/angle nos dois; só o fontSize difere (sigla cabe maior). */
+  abbrLayout: CountryLabelLayout;
+  fullLayout: CountryLabelLayout;
   countryCode: string;
+  /** Forma da divisão (lng/lat) e caixa projetada — pro nome acompanhar a
+   * parte visível de uma região grande (ver runAdminDeclutter). */
+  geometry: GeoGeometry;
+  bounds: [[number, number], [number, number]];
 }
 
 /** Divisão administrativa já com o país-dono marcado — o fetch por país
@@ -346,70 +508,200 @@ function WorldMapInner({
     Map<
       string,
       {
-        naturalFontSize: number;
+        abbrFontSize: number;
+        fullFontSize: number;
+        abbrText: string;
+        fullText: string;
         targetOpacity: number;
-        // Último valor escrito no DOM — evita reescrever o mesmo `font-size`
-        // (que força o navegador a remedir o texto) quadro após quadro
-        // quando o rótulo já bateu no teto (MAX_ADMIN_LABEL_SCREEN_PX) e
-        // fica constante por boa parte de um zoom bem fundo. `NaN` força a
-        // primeira escrita sempre.
-        lastFontSize: number;
+        // Último valor escrito no DOM — `NaN` força a primeira escrita. O
+        // tamanho na tela é mantido por uma ESCALA no <g> (transform), nunca
+        // por `font-size`: mudar font-size força o navegador a remedir e
+        // reposicionar o texto (layout) de cada nome a cada quadro do zoom;
+        // transform só repinta.
+        lastScale: number;
+        lastSx: number;
+        lastSy: number;
         lastOpacity: number;
+        // Qual texto está escrito no DOM agora (null = ainda nenhum, força
+        // a primeira escrita).
+        lastIsFull: boolean | null;
+        // true = perdeu a disputa de espaço (ver runAdminDeclutter) e fica
+        // escondido neste zoom/enquadramento — com fade, nunca "pisca".
+        hidden: boolean;
+        // Posição alternativa (unidades do viewBox) quando o ponto natural do
+        // nome está fora da tela mas a região ainda aparece — null = natural.
+        overrideX: number | null;
+        overrideY: number | null;
+        // Posição mudou: reaplica no DOM (com fade) no próximo quadro.
+        pendingMove: boolean;
+        baseX: number;
+        baseY: number;
+        angle: number;
       }
     >
   >(new Map());
   const adminTextRefs = useRef<Map<string, SVGTextElement>>(new Map());
   const adminOpacityGroupRefs = useRef<Map<string, SVGGElement>>(new Map());
   const mapWidthPxRef = useRef(0);
-  const applyAdminLabelFrame = useCallback((zoomValue: number) => {
-    const mw = mapWidthPxRef.current;
-    const screenPxPerSvgUnit = (mw > 0 ? mw / 800 : 1216 / 800) * zoomValue;
-    const screenCapSvg = MAX_ADMIN_LABEL_SCREEN_PX / screenPxPerSvgUnit;
+  // Transformação atual do mapa (translate + escala do ZoomableGroup, no espaço
+  // do viewBox) e a calibração viewBox -> pixels de tela do container.
+  const adminViewRef = useRef({ tx: 0, ty: 0, k: 1 });
+  const adminPanBaseRef = useRef<{ tx: number; ty: number; k: number } | null>(null);
+  // <svg> da camada de nomes: arrastar só desloca ele por CSS (composição,
+  // sem repintar nenhum texto).
+  const adminOverlayRef = useRef<SVGSVGElement | null>(null);
+  const adminCalibRef = useRef({ a: 1, d: 1, e: 0, f: 0 });
+  const effectiveMaxZoomRef = useRef(MAX_ZOOM);
+  // Altura do mapa na tela, medida só quando a janela muda — ler direto do
+  // DOM a cada disputa de espaço forçaria um layout.
+  const mapHeightPxRef = useRef(0);
+  const pendingFadeInIdsRef = useRef<Set<string>>(new Set());
+  const adminFadeRafRef = useRef<number | null>(null);
+  const applyAdminLabelFrame = useCallback((force = false) => {
+    const { tx, ty, k } = adminViewRef.current;
+    const { a, d, e: ce, f: cf } = adminCalibRef.current;
+    // Arrastar (zoom igual ao último reposicionamento) só TRANSLADA tudo: em
+    // vez de reescrever o transform de cada nome, move o grupo único que os
+    // contém — um atributo por quadro em vez de centenas. Qualquer outra
+    // coisa (zoom mudou, nomes montados/escondidos, fim do gesto) reposiciona
+    // cada nome em coordenadas absolutas e zera o deslocamento do grupo.
+    const base = adminPanBaseRef.current;
+    const overlay = adminOverlayRef.current;
+    if (!force && overlay && base && base.k === k) {
+      overlay.style.transform = `translate3d(${(a * (tx - base.tx)).toFixed(1)}px, ${(d * (ty - base.ty)).toFixed(1)}px, 0)`;
+      return;
+    }
+    adminPanBaseRef.current = { tx, ty, k };
+    if (overlay) overlay.style.transform = "";
+    const W = mapWidthPxRef.current || 1216;
+    const H = mapHeightPxRef.current || W * 0.625;
+    // Nível (sigla/nome) depende só do zoom, não de cada rótulo.
+    const isFull = k >= ADMIN1_FULLNAME_ZOOM;
     for (const [id, meta] of adminLabelMetaRef.current) {
-      const fontSizeSvg = Math.min(meta.naturalFontSize, screenCapSvg);
-      const apparentPx = fontSizeSvg * screenPxPerSvgUnit;
-      const visible = apparentPx >= MIN_ADMIN_LABEL_SCREEN_PX;
-      const opacity = visible ? meta.targetOpacity : 0;
-      // Boa parte de um gesto de zoom bem fundo mantém a fonte já no teto
-      // (screenCapSvg) — nesse trecho fontSizeSvg NÃO muda quadro a
-      // quadro, só a posição/escala do <g> pai (que o ZoomableGroup já
-      // cuida sozinho via transform, de graça). Pular a escrita quando
-      // nada mudou evita fazer o navegador remedir texto (setAttribute
-      // de font-size é uma das operações mais caras aqui) centenas de
-      // vezes por gesto à toa.
-      if (meta.lastFontSize === fontSizeSvg && meta.lastOpacity === opacity) continue;
-      meta.lastFontSize = fontSizeSvg;
-      meta.lastOpacity = opacity;
+      const natural = isFull ? meta.fullFontSize : meta.abbrFontSize;
+      // Tamanho NA TELA (px): cresce com o mapa até o teto e daí fica fixo.
+      const fontPx = Math.min(natural * k * a, MAX_ADMIN_LABEL_SCREEN_PX);
+      const visible = fontPx >= MIN_ADMIN_LABEL_SCREEN_PX;
+      const opacity = visible && !meta.hidden ? meta.targetOpacity : 0;
+      const x = meta.overrideX ?? meta.baseX;
+      const y = meta.overrideY ?? meta.baseY;
+      // Posição em px de tela: o mesmo mapeamento que o ZoomableGroup aplica
+      // (translate(tx ty) scale(k) no espaço do viewBox) + a calibração
+      // viewBox -> tela. Os nomes vivem numa camada de tela SEM escala (ver
+      // adminOverlay): o navegador refaz o layout de cada texto SVG sempre que
+      // a escala dele muda, o que custava centenas de relayouts por quadro.
+      const sx = a * (x * k + tx) + ce;
+      const sy = d * (y * k + ty) + cf;
+      // Fora da tela (com folga de meia tela, que a camada cobre — ver
+      // adminOverlay): nem mexe no DOM; escreve tudo quando voltar.
+      if (sx < -W / 2 || sx > W * 1.5 || sy < -H / 2 || sy > H * 1.5) {
+        meta.lastSx = NaN;
+        continue;
+      }
+      const scale = fontPx / ADMIN_LABEL_BASE_FONT_PX;
+      if (
+        meta.lastSx === sx &&
+        meta.lastSy === sy &&
+        meta.lastScale === scale &&
+        meta.lastOpacity === opacity &&
+        meta.lastIsFull === isFull &&
+        !meta.pendingMove
+      ) {
+        continue;
+      }
       const textEl = adminTextRefs.current.get(id);
       const groupEl = adminOpacityGroupRefs.current.get(id);
-      if (!textEl || !groupEl) continue;
-      groupEl.style.opacity = String(opacity);
-      textEl.setAttribute("font-size", String(fontSizeSvg));
-      textEl.setAttribute("stroke-width", String(fontSizeSvg * 0.04));
-      textEl.setAttribute("letter-spacing", String(fontSizeSvg * 0.01));
+      // Nome fora da tela não está montado (ver visibleAdminLabelEntries):
+      // não marca como escrito — escreve tudo quando ele entrar.
+      if (!textEl || !groupEl) {
+        meta.lastIsFull = null;
+        meta.lastScale = NaN;
+        meta.lastOpacity = NaN;
+        meta.lastSx = NaN;
+        continue;
+      }
+      const textChanged = meta.lastIsFull !== isFull;
+      const moving = meta.pendingMove;
+      meta.pendingMove = false;
+      const wasWritten = meta.lastIsFull !== null;
+      meta.lastSx = sx;
+      meta.lastSy = sy;
+      meta.lastScale = scale;
+      meta.lastOpacity = opacity;
+      meta.lastIsFull = isFull;
+      // Troca de nível ou de posição alternativa num rótulo que já estava
+      // escrito: some na hora (sem transição), muda invisível e reaparece com
+      // fade no próximo quadro (ver rAF no fim desta função).
+      if ((textChanged || moving) && wasWritten) {
+        groupEl.style.transition = "none";
+        groupEl.style.opacity = "0";
+        pendingFadeInIdsRef.current.add(id);
+      } else {
+        groupEl.style.opacity = String(opacity);
+      }
+      if (moving) {
+        // Nome acompanhando a parte visível de uma região grande (ver
+        // runAdminDeclutter): sem rotação na posição alternativa.
+        if (meta.overrideX == null && meta.angle) textEl.setAttribute("transform", `rotate(${meta.angle})`);
+        else textEl.removeAttribute("transform");
+      }
+      // A camada começa meia tela antes do container (left/top -50%), então
+      // as coordenadas dentro dela ganham esse deslocamento.
+      groupEl.setAttribute(
+        "transform",
+        `translate(${(sx + W / 2).toFixed(1)} ${(sy + H / 2).toFixed(1)}) scale(${scale.toFixed(3)})`,
+      );
+      if (textChanged) {
+        // Escreve no MESMO nó de texto que o React criou (não troca o nó),
+        // pra o React continuar dono dele sem ficar com referência órfã.
+        const next = isFull ? meta.fullText : meta.abbrText;
+        if (textEl.firstChild) textEl.firstChild.nodeValue = next;
+        else textEl.textContent = next;
+      }
+    }
+    if (pendingFadeInIdsRef.current.size > 0 && adminFadeRafRef.current == null) {
+      adminFadeRafRef.current = requestAnimationFrame(() => {
+        adminFadeRafRef.current = null;
+        // Um único flush de estilo pro lote todo: garante que o navegador
+        // já "viu" opacity 0 antes de reativar a transição — senão a troca
+        // vinda de um clique de botão (sem quadro pintado no meio) viraria
+        // um pop em vez de um fade.
+        const first = pendingFadeInIdsRef.current.values().next().value;
+        const firstEl = first ? adminOpacityGroupRefs.current.get(first) : undefined;
+        if (firstEl) void getComputedStyle(firstEl).opacity;
+        for (const id of pendingFadeInIdsRef.current) {
+          const el = adminOpacityGroupRefs.current.get(id);
+          const m = adminLabelMetaRef.current.get(id);
+          if (!el || !m) continue;
+          el.style.transition = ADMIN_LABEL_FADE_TRANSITION;
+          el.style.opacity = String(m.lastOpacity);
+        }
+        pendingFadeInIdsRef.current.clear();
+      });
     }
   }, []);
 
   const lastAppliedAdminZoomRef = useRef<number | null>(null);
+  const lastDeclutterAtRef = useRef(0);
+  const runAdminDeclutterRef = useRef<((zoomValue: number) => void) | null>(null);
   const flushPendingZoom = useCallback(() => {
     moveRafRef.current = null;
     const pending = pendingZoomRef.current;
     if (pending == null) return;
     setLabelZoom(pending);
-    // Num gesto de ARRASTAR (sem mudar o zoom), onMove dispara a cada
-    // quadro com o MESMO valor de zoom — sem essa guarda,
-    // applyAdminLabelFrame percorria a lista inteira de rótulos toda vez
-    // à toa (mesmo sem escrever nada, graças ao "pular se não mudou" lá
-    // dentro), só pra concluir que nada muda. Pular a chamada inteira
-    // quando o zoom não mudou do último quadro aplicado é mais barato
-    // ainda: nem entra no loop.
-    if (lastAppliedAdminZoomRef.current !== pending) {
-      lastAppliedAdminZoomRef.current = pending;
-      applyAdminLabelFrame(pending);
+    // Arrastar também move os nomes (posição em tela) — aplica a cada quadro.
+    applyAdminLabelFrame();
+    // Durante o gesto, refaz a disputa de espaço no máximo ~7x por segundo (é
+    // um cálculo de centenas de caixas, não de graça).
+    const now = performance.now();
+    if (now - lastDeclutterAtRef.current > 140) {
+      lastDeclutterAtRef.current = now;
+      runAdminDeclutterRef.current?.(pending);
     }
   }, [applyAdminLabelFrame]);
   const handleZoomMove = useCallback(
-    (z: number) => {
+    (z: number, tx: number, ty: number) => {
+      adminViewRef.current = { tx, ty, k: z };
       pendingZoomRef.current = z;
       if (moveRafRef.current == null) {
         moveRafRef.current = requestAnimationFrame(flushPendingZoom);
@@ -526,6 +818,7 @@ function WorldMapInner({
   const atHome = zoom === 1 && center[0] === HOME_CENTER[0] && center[1] === HOME_CENTER[1];
 
   const reset = () => {
+    setSelectedDivision(null);
     setZoom(1);
     setCenter(HOME_CENTER);
     setMapInstanceKey((k) => k + 1);
@@ -559,7 +852,11 @@ function WorldMapInner({
   const [mapWidthPx, setMapWidthPx] = useState(0);
   useEffect(() => {
     const measure = () => {
-      if (wrapRef.current) setMapWidthPx(wrapRef.current.getBoundingClientRect().width);
+      if (wrapRef.current) {
+        const r = wrapRef.current.getBoundingClientRect();
+        mapHeightPxRef.current = r.height;
+        setMapWidthPx(r.width);
+      }
     };
     measure();
     window.addEventListener("resize", measure);
@@ -676,7 +973,9 @@ function WorldMapInner({
     const result = new Set<string>();
     if (centerCca2) result.add(centerCca2); // garantido, nunca cortado pelo teto
     for (const cca2 of ranked) {
-      if (result.size >= MAX_ACTIVE_ADMIN_COUNTRIES) break;
+      // De bem perto a tela mostra poucos países de verdade, então cabem mais
+      // com divisões ao mesmo tempo (de longe o teto protege a fluidez).
+      if (result.size >= (zoom >= 10 ? MAX_ACTIVE_ADMIN_COUNTRIES + 2 : MAX_ACTIVE_ADMIN_COUNTRIES)) break;
       result.add(cca2);
     }
     return [...result];
@@ -704,6 +1003,15 @@ function WorldMapInner({
   const mergedBorderPathCacheRef = useRef<Map<string, string>>(new Map());
   const [adminDivisions, setAdminDivisions] = useState<TaggedAdminDivision[]>([]);
   const [adminLabelEntries, setAdminLabelEntries] = useState<AdminLabelEntry[]>([]);
+  // Lugares extras (GeoNames) dos países ativos — mais cidades menores de
+  // perto, ver minExtraPopForZoom.
+  const [extraCities, setExtraCities] = useState<CityWithCountry[]>([]);
+  const extraCacheRef = useRef<Map<string, CityWithCountry[]>>(new Map());
+  const adminDivisionsRef = useRef(adminDivisions);
+  adminDivisionsRef.current = adminDivisions;
+  // Estado/província que a pessoa clicou (abre o card de informações).
+  const [selectedDivision, setSelectedDivision] = useState<SelectedDivision | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     const codes = activeAdminCodesKey ? activeAdminCodesKey.split(",") : [];
@@ -750,8 +1058,20 @@ function WorldMapInner({
         const divisions: TaggedAdminDivision[] = (raw ?? []).map((d) => ({ ...d, countryCode: code }));
         const labels: AdminLabelEntry[] = [];
         for (const d of divisions) {
-          const layout = computeCountryLabel(d.geometry, d.name);
-          if (layout) labels.push({ id: d.id, name: d.name, layout, countryCode: code });
+          const abbr = d.abbr || d.name;
+          const layouts = computeAdminLabelVariants(d.geometry, abbr, d.name);
+          if (layouts) {
+            labels.push({
+              id: d.id,
+              abbr,
+              name: d.name,
+              abbrLayout: layouts.abbr,
+              fullLayout: layouts.full,
+              countryCode: code,
+              geometry: d.geometry,
+              bounds: projectedBounds(d.geometry),
+            });
+          }
         }
         adminCacheRef.current.set(code, { divisions, labels });
         if (cancelled) return;
@@ -761,6 +1081,46 @@ function WorldMapInner({
       }
     })();
 
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAdminCodesKey]);
+
+  useEffect(() => {
+    const codes = activeAdminCodesKey ? activeAdminCodesKey.split(",") : [];
+    let cancelled = false;
+    (async () => {
+      const lists: CityWithCountry[][] = [];
+      for (const code of codes) {
+        let list = extraCacheRef.current.get(code);
+        if (!list) {
+          const places = await getPlacesForCountry(code);
+          const curated = getAllCities().filter((c) => c.cca2 === code);
+          list = places
+            // O app já tem painel próprio pra essas (as cidades curadas).
+            .filter((p) => !curated.some((c) => Math.abs(c.lat - p.lat) < 0.12 && Math.abs(c.lng - p.lng) < 0.12))
+            .map((p, i) => {
+              const [px, py] = projectPoint(p.lng, p.lat);
+              return {
+                name: p.name,
+                lat: p.lat,
+                lng: p.lng,
+                pop: p.pop,
+                capital: p.capital > 0,
+                extra: true,
+                cca2: code,
+                rank: 100 + i,
+                px,
+                py,
+              } satisfies CityWithCountry;
+            });
+          extraCacheRef.current.set(code, list);
+        }
+        lists.push(list);
+        if (cancelled) return;
+      }
+      if (!cancelled) setExtraCities(lists.flat());
+    })();
     return () => {
       cancelled = true;
     };
@@ -792,17 +1152,48 @@ function WorldMapInner({
   const adminLabelMeta = useMemo(() => {
     const map = new Map<
       string,
-      { naturalFontSize: number; targetOpacity: number; lastFontSize: number; lastOpacity: number }
+      {
+        abbrFontSize: number;
+        fullFontSize: number;
+        abbrText: string;
+        fullText: string;
+        targetOpacity: number;
+        lastScale: number;
+        lastSx: number;
+        lastSy: number;
+        lastOpacity: number;
+        lastIsFull: boolean | null;
+        hidden: boolean;
+        overrideX: number | null;
+        overrideY: number | null;
+        pendingMove: boolean;
+        baseX: number;
+        baseY: number;
+        angle: number;
+      }
     >();
     for (const e of adminLabelEntries) {
       const dimmed = isFiltered(byCca2.get(e.countryCode));
       // NaN garante que a primeira chamada de applyAdminLabelFrame depois
       // de um rótulo nascer sempre escreve (nunca é igual a NaN).
       map.set(e.id, {
-        naturalFontSize: e.layout.fontSize,
+        abbrFontSize: e.abbrLayout.fontSize,
+        fullFontSize: e.fullLayout.fontSize,
+        abbrText: e.abbr,
+        fullText: e.name,
         targetOpacity: dimmed ? 0.22 : 0.82,
-        lastFontSize: NaN,
+        lastScale: NaN,
+        lastSx: NaN,
+        lastSy: NaN,
         lastOpacity: NaN,
+        lastIsFull: null,
+        hidden: adminLabelMetaRef.current.get(e.id)?.hidden ?? false,
+        overrideX: adminLabelMetaRef.current.get(e.id)?.overrideX ?? null,
+        overrideY: adminLabelMetaRef.current.get(e.id)?.overrideY ?? null,
+        pendingMove: false,
+        baseX: e.abbrLayout.x,
+        baseY: e.abbrLayout.y,
+        angle: e.abbrLayout.angle ?? 0,
       });
     }
     return map;
@@ -822,8 +1213,20 @@ function WorldMapInner({
   // própria — este efeito garante que o DOM sempre reflete o zoom
   // assentado atual nesses casos.
   useEffect(() => {
-    applyAdminLabelFrame(zoom);
-  }, [zoom, adminLabelMeta, mapWidthPx, applyAdminLabelFrame]);
+    // Calibra viewBox -> pixels de tela do container (muda só com o tamanho
+    // da janela) e posiciona os nomes pelo zoom/centro assentados. O
+    // ZoomableGroup deixa o centro no meio do viewBox 800x600:
+    // translate = (400 - cx*k, 300 - cy*k).
+    const wrap = wrapRef.current;
+    const m = wrap?.querySelector("svg")?.getScreenCTM();
+    if (wrap && m) {
+      const r = wrap.getBoundingClientRect();
+      adminCalibRef.current = { a: m.a, d: m.d, e: m.e - r.left, f: m.f - r.top };
+    }
+    const [cx, cy] = projectPoint(center[0], center[1]);
+    adminViewRef.current = { tx: 400 - cx * zoom, ty: 300 - cy * zoom, k: zoom };
+    applyAdminLabelFrame(true);
+  }, [zoom, center, adminLabelMeta, mapWidthPx, layoutSettled, ready, applyAdminLabelFrame]);
 
   // O RAIO DE AGRUPAMENTO em toque (44px de tela — precisa ser grande pro
   // dedo, ver markerGroups) também é convertido pra unidades do viewBox
@@ -838,6 +1241,7 @@ function WorldMapInner({
   // dê pra "compensar" apertando mais o zoom até esse cluster se abrir e
   // isolar cada país, do jeito que já acontecia naturalmente no desktop.
   const effectiveMaxZoom = MAX_ZOOM * sizeScale;
+  effectiveMaxZoomRef.current = effectiveMaxZoom;
 
   // Traços finos e constantes em qualquer nível de zoom — mas "constante"
   // aqui também precisa ser em pixels de TELA de verdade, não em unidades
@@ -866,12 +1270,57 @@ function WorldMapInner({
     if (c) setHovered(c);
   }, []);
   const handleLeaveCountry = useCallback(() => setHovered(null), []);
+  // Clicar numa área em que as divisões internas estão desenhadas escolhe o
+  // ESTADO/PROVÍNCIA sob o dedo (abre o card de informações dele) em vez do
+  // país inteiro — o país continua a um clique de distância no card. O
+  // ponto clicado vira lng/lat desfazendo o transform do ZoomableGroup
+  // (getScreenCTM) e a projeção, e é testado contra as divisões carregadas.
   const handleClickCountry = useCallback(
-    (c: Country | undefined) => {
+    (c: Country | undefined, e?: React.MouseEvent) => {
+      const divisions = adminDivisionsRef.current;
+      if (e && divisions.length > 0) {
+        const g = (e.currentTarget as SVGElement).closest("g.rsm-zoomable-group") as SVGGElement | null;
+        const ctm = g?.getScreenCTM();
+        if (ctm) {
+          const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
+          const lngLat = unprojectPoint(pt.x, pt.y);
+          const hit = lngLat ? findDivisionAt(lngLat, divisions) : null;
+          if (hit) {
+            setSelectedDivision(hit);
+            return;
+          }
+        }
+      }
       if (c) onSelect(c);
     },
     [onSelect],
   );
+  // Lugar escolhido na lista do card: se é uma das cidades do app (que têm
+  // painel próprio — atrações, onde ficar...), abre o painel dela; senão voa
+  // até o ponto no mapa e mantém o card aberto.
+  const handleSelectPlace = useCallback(
+    (p: { name: string; lat: number; lng: number }, countryCode: string) => {
+      const match = getAllCities().find(
+        (c) => c.cca2 === countryCode && Math.abs(c.lat - p.lat) < 0.15 && Math.abs(c.lng - p.lng) < 0.15,
+      );
+      if (match && onSelectCity) {
+        setSelectedDivision(null);
+        onSelectCity(match);
+        return;
+      }
+      setCenter([p.lng, p.lat]);
+      setZoom((z) => Math.max(z, 12));
+    },
+    [onSelectCity],
+  );
+  useEffect(() => {
+    if (!selectedDivision) return;
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") setSelectedDivision(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedDivision]);
 
   const handleEnterCity = useCallback((c: CityWithCountry) => {
     setHoveredCity(c);
@@ -880,6 +1329,12 @@ function WorldMapInner({
   const handleLeaveCity = useCallback(() => setHoveredCity(null), []);
   const handleClickCity = useCallback(
     (c: CityWithCountry) => {
+      // Lugar extra não tem painel próprio: aproxima nele.
+      if (c.extra) {
+        setCenter([c.lng, c.lat]);
+        setZoom((z) => Math.min(z * 2.5, effectiveMaxZoomRef.current));
+        return;
+      }
       onSelectCity?.(c);
     },
     [onSelectCity],
@@ -958,6 +1413,41 @@ function WorldMapInner({
     [embeddedLabelEntries],
   );
 
+  // Traçados de alta resolução por país (ccn3 sem zeros à esquerda → `d`),
+  // carregados em segundo plano assim que a pessoa começa a aproximar.
+  const [detailPaths, setDetailPaths] = useState<DetailSet | null>(null);
+  // Só depois dos países "engolidos" já estarem identificados (labelEntries).
+  const wantsDetail = zoom >= DETAIL_PRELOAD_ZOOM && labelEntries != null;
+  const embeddedCountries = useMemo(() => embeddedLabelEntries.map((e) => e.country), [embeddedLabelEntries]);
+  useEffect(() => {
+    if (!wantsDetail) return;
+    let cancelled = false;
+    loadDetailPaths(GEO_URL_DETAIL, embeddedCountries, () => cancelled)
+      .then((m) => {
+        if (m && !cancelled) setDetailPaths(m);
+      })
+      .catch(() => {
+        // sem rede: segue com o traçado leve; tenta de novo na próxima aproximação
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [wantsDetail, embeddedCountries]);
+  const [finePaths, setFinePaths] = useState<DetailSet | null>(null);
+  const wantsFine = zoom >= DETAIL_FINE_PRELOAD_ZOOM && labelEntries != null;
+  useEffect(() => {
+    if (!wantsFine) return;
+    let cancelled = false;
+    loadDetailPaths(GEO_URL_FINE, embeddedCountries, () => cancelled)
+      .then((m) => {
+        if (m && !cancelled) setFinePaths(m);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [wantsFine, embeddedCountries]);
+
   // Países sem forma própria na topologia (ver comentário na constante
   // COUNTRY_PIN_REVEAL_ZOOM) — a posição de cada um só precisa ser
   // recalculada quando a LISTA de países ausentes muda, não a cada
@@ -989,7 +1479,7 @@ function WorldMapInner({
     const cityPoints: MarkerPoint[] =
       maxRank < 0
         ? []
-        : getVisibleCities(cx, cy, zoom, maxRank, CITY_MARKER_LIMIT).map((city) => ({
+        : getVisibleCities(cx, cy, zoom, maxRank, CITY_MARKER_LIMIT, extraCities, minExtraPopForZoom(zoom, mapWidthPx > 0 && mapWidthPx < 600)).map((city) => ({
             kind: "city" as const,
             city,
           }));
@@ -1010,7 +1500,22 @@ function WorldMapInner({
     // Cidades primeiro (já vêm ordenadas por relevância) — quando um país
     // pequeno cai perto de uma cidade conhecida, o cluster resultante
     // ancora na cidade, que é o ponto de referência mais útil dos dois.
-    const all: MarkerPoint[] = [...cityPoints, ...countryPoints];
+    // Lugares EXTRAS (cidades menores, só de perto) nunca viram cluster —
+    // igual aos apps de mapa, o menor simplesmente cede lugar ao maior que
+    // está a menos de ~16px na tela. As cidades do app (com painel) seguem
+    // com o agrupamento de sempre.
+    const minSepProj = (16 * sizeScale) / zoom;
+    const keptCityPoints: MarkerPoint[] = [];
+    for (const p of cityPoints) {
+      if (p.kind === "city" && p.city.extra) {
+        const clash = keptCityPoints.some(
+          (q) => Math.hypot(markerPx(q) - p.city.px, markerPy(q) - p.city.py) < minSepProj,
+        );
+        if (clash) continue;
+      }
+      keptCityPoints.push(p);
+    }
+    const all: MarkerPoint[] = [...keptCityPoints, ...countryPoints];
 
     // Passo 1 — agrupamento: quando os CÍRCULOS de dois marcadores
     // (cidade ou país, tanto faz) ficariam sobrepostos na tela — bairros da
@@ -1035,7 +1540,13 @@ function WorldMapInner({
     for (const p of all) {
       const px = markerPx(p);
       const py = markerPy(p);
+      const isExtra = (m: MarkerPoint) => m.kind === "city" && !!m.city.extra;
+      if (isExtra(p)) {
+        rawGroups.push([p]);
+        continue;
+      }
       const group = rawGroups.find((g) => {
+        if (isExtra(g[0])) return false;
         const ax = markerPx(g[0]);
         const ay = markerPy(g[0]);
         return Math.hypot(ax - px, ay - py) < clusterGapProj;
@@ -1117,7 +1628,196 @@ function WorldMapInner({
       const [lng, lat] = markerLngLat(anchor);
       return { kind: "cluster", items: g, px: markerPx(anchor), py: markerPy(anchor), lng, lat };
     });
-  }, [center, zoom, missingCountryPins, touchTarget, svgUnitsPerScreenPx, sizeScale]);
+  }, [center, zoom, missingCountryPins, touchTarget, svgUnitsPerScreenPx, sizeScale, extraCities, mapWidthPx]);
+
+  // ---- Disputa de espaço entre rótulos (estilo Apple/Google Maps) ----
+  // Cada nome de estado/província só aparece se NÃO bater em outro nome já
+  // aceito nem num ponto/nome de cidade — quem é de uma região MAIOR ganha
+  // a vaga (a ordem é pelo tamanho natural da forma), o resto some com
+  // fade e volta sozinho quando o zoom abrir espaço. Roda no zoom assentado
+  // e, durante o gesto, em intervalos (ver flushPendingZoom).
+  const adminLabelEntriesRef = useRef(adminLabelEntries);
+  adminLabelEntriesRef.current = adminLabelEntries;
+  const markerGroupsRef = useRef(markerGroups);
+  markerGroupsRef.current = markerGroups;
+  const centerRef = useRef(center);
+  centerRef.current = center;
+  const sizeScaleRef = useRef(sizeScale);
+  sizeScaleRef.current = sizeScale;
+  const runAdminDeclutter = useCallback(
+    (zoomValue: number) => {
+      const metas = adminLabelMetaRef.current;
+      const entries = adminLabelEntriesRef.current;
+      if (metas.size === 0 || entries.length === 0) return;
+      const W = mapWidthPxRef.current || 1216;
+      const H = mapHeightPxRef.current || W * 0.625;
+      const { tx, ty, k } = adminViewRef.current;
+      const { a: ca, d: cd, e: ce, f: cf } = adminCalibRef.current;
+      // Mesmo mapeamento de applyAdminLabelFrame (projeção -> tela).
+      const toX = (x: number) => ca * (x * k + tx) + ce;
+      const toY = (y: number) => cd * (y * k + ty) + cf;
+      const isFull = k >= ADMIN1_FULLNAME_ZOOM;
+      // Avalia também um pedaço além da tela, pra o que entra durante um
+      // arraste já chegar com a decisão tomada.
+      const padX = W * 0.5;
+      const padY = H * 0.5;
+      const ss = sizeScaleRef.current;
+
+      type Box = { x0: number; y0: number; x1: number; y1: number };
+      const overlaps = (a: Box, b: Box) => a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
+
+      // Obstáculos: pontos, nomes e badges de cidade/cluster já desenhados.
+      const obstacles: Box[] = [];
+      for (const g of markerGroupsRef.current) {
+        const px = g.kind === "cluster" ? g.px : g.kind === "city" ? g.city.px : g.pin.px;
+        const py = g.kind === "cluster" ? g.py : g.kind === "city" ? g.city.py : g.pin.py;
+        const sx = toX(px);
+        const sy = toY(py);
+        if (sx < -padX || sx > W + padX || sy < -padY || sy > H + padY) continue;
+        const r = (g.kind === "cluster" ? 17 : 11) * ss;
+        obstacles.push({ x0: sx - r, y0: sy - r, x1: sx + r, y1: sy + r });
+        const label =
+          g.kind === "city" && g.city.showLabel
+            ? g.city.name
+            : g.kind === "country" && g.showLabel
+              ? getPtName(g.pin.country)
+              : null;
+        if (label) {
+          const hw = (label.length * 5.9 * ss) / 2 + 3;
+          obstacles.push({ x0: sx - hw, y0: sy - 21 * ss, x1: sx + hw, y1: sy - 5 * ss });
+        }
+      }
+
+      let changed = false;
+      // Cada candidato tem ou uma caixa FIXA (o ponto natural do nome está na
+      // tela) ou uma lista de pontos de tentativa dentro da parte visível da
+      // região (o ponto natural está fora da tela) — ordenados do mais perto
+      // do centro da tela pro mais longe; vale o primeiro que não bate em
+      // nada e cai de fato dentro da região.
+      type Cand = {
+        id: string;
+        prio: number;
+        w: number;
+        h: number;
+        fixed: Box | null;
+        makeSamples: () => { px: number; py: number }[];
+        geometry: GeoGeometry;
+      };
+      const cands: Cand[] = [];
+      for (const e of entries) {
+        const meta = metas.get(e.id);
+        if (!meta) continue;
+        const layout = isFull ? e.fullLayout : e.abbrLayout;
+        const fontPx = Math.min(layout.fontSize * k * ca, MAX_ADMIN_LABEL_SCREEN_PX);
+        const sx = toX(layout.x);
+        const sy = toY(layout.y);
+        const text = isFull ? e.name : e.abbr;
+        // Sigla (caixa alta) é mais larga por letra que nome em caixa mista.
+        const w = text.length * fontPx * (isFull ? 0.58 : 0.72) + 4;
+        const h = fontPx * 1.2;
+        const inset = 28;
+        const anchorOnScreen = sx >= inset && sx <= W - inset && sy >= inset && sy <= H - inset;
+        // Pontos de tentativa DENTRO da parte visível da região (ver Cand);
+        // montados só quando precisa (ponto natural fora da tela ou ocupado).
+        const makeSamples = () => {
+          const out: { px: number; py: number }[] = [];
+          if (fontPx < MIN_ADMIN_LABEL_SCREEN_PX) return out;
+          // Retângulo da tela (com folga) de volta pro espaço da projeção.
+          const [[bx0, by0], [bx1, by1]] = e.bounds;
+          const fromX = (px: number) => ((px - ce) / ca - tx) / k;
+          const fromY = (py: number) => ((py - cf) / cd - ty) / k;
+          const ix0 = Math.max(bx0, fromX(inset));
+          const ix1 = Math.min(bx1, fromX(W - inset));
+          const iy0 = Math.max(by0, fromY(inset));
+          const iy1 = Math.min(by1, fromY(H - inset));
+          if ((ix1 - ix0) * k * ca < w || (iy1 - iy0) * k * cd < h) return out;
+          const N = 7;
+          for (let i = 0; i < N; i++) {
+            for (let j = 0; j < N; j++) {
+              out.push({ px: ix0 + ((i + 0.5) / N) * (ix1 - ix0), py: iy0 + ((j + 0.5) / N) * (iy1 - iy0) });
+            }
+          }
+          out.sort(
+            (p, q) => Math.hypot(toX(p.px) - W / 2, toY(p.py) - H / 2) - Math.hypot(toX(q.px) - W / 2, toY(q.py) - H / 2),
+          );
+          return out;
+        };
+        const naturalUsable = fontPx >= MIN_ADMIN_LABEL_SCREEN_PX && anchorOnScreen;
+        // Fora da tela (ou pequeno demais) e sem parte visível suficiente: nada
+        // a disputar. Se o ponto natural está fora, a lista já é montada aqui.
+        const samples = naturalUsable ? null : makeSamples();
+        if (!naturalUsable && (!samples || samples.length === 0)) {
+          meta.hidden = false;
+          if (meta.overrideX != null) {
+            meta.overrideX = null;
+            meta.overrideY = null;
+            meta.pendingMove = true;
+            changed = true;
+          }
+          continue;
+        }
+        // Rotação só vale na posição natural (a alternativa é horizontal).
+        const rad = ((layout.angle ?? 0) * Math.PI) / 180;
+        const hw = (Math.abs(Math.cos(rad)) * w + Math.abs(Math.sin(rad)) * h) / 2;
+        const hh = (Math.abs(Math.sin(rad)) * w + Math.abs(Math.cos(rad)) * h) / 2;
+        cands.push({
+          id: e.id,
+          prio: e.fullLayout.fontSize,
+          w,
+          h,
+          fixed: naturalUsable ? { x0: sx - hw, y0: sy - hh, x1: sx + hw, y1: sy + hh } : null,
+          makeSamples: samples ? () => samples : makeSamples,
+          geometry: e.geometry,
+        });
+      }
+      cands.sort((p, q) => q.prio - p.prio);
+      const accepted: Box[] = [];
+      const collides = (box: Box) => obstacles.some((o) => overlaps(box, o)) || accepted.some((o) => overlaps(box, o));
+      for (const c of cands) {
+        let blocked = true;
+        let ox: number | null = null;
+        let oy: number | null = null;
+        if (c.fixed && !collides(c.fixed)) {
+          accepted.push(c.fixed);
+          blocked = false;
+        } else {
+          // Ponto natural ocupado (ou fora da tela): tenta a parte visível.
+          for (const sp of c.makeSamples()) {
+            const sx = toX(sp.px);
+            const sy = toY(sp.py);
+            const box = { x0: sx - c.w / 2, y0: sy - c.h / 2, x1: sx + c.w / 2, y1: sy + c.h / 2 };
+            if (collides(box)) continue;
+            const ll = unprojectPoint(sp.px, sp.py);
+            if (!ll || !pointInGeometry(ll, c.geometry)) continue;
+            accepted.push(box);
+            ox = sp.px;
+            oy = sp.py;
+            blocked = false;
+            break;
+          }
+        }
+        const meta = metas.get(c.id)!;
+        if (meta.overrideX !== ox || meta.overrideY !== oy) {
+          meta.overrideX = ox;
+          meta.overrideY = oy;
+          meta.pendingMove = true;
+          changed = true;
+        }
+        if (meta.hidden !== blocked) {
+          meta.hidden = blocked;
+          meta.lastOpacity = NaN; // força a escrita no próximo applyAdminLabelFrame
+          changed = true;
+        }
+      }
+      if (changed) applyAdminLabelFrame(true);
+    },
+    [applyAdminLabelFrame],
+  );
+  runAdminDeclutterRef.current = runAdminDeclutter;
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => runAdminDeclutter(zoom));
+    return () => cancelAnimationFrame(raf);
+  }, [zoom, center, adminLabelMeta, markerGroups, mapWidthPx, runAdminDeclutter]);
 
   // Rótulos de país (nome sobre o próprio território) prontos pra desenhar
   // NESTE zoom: só filtra quem é grande o bastante pra ler (screen cap +
@@ -1144,6 +1844,10 @@ function WorldMapInner({
   // fixa no espaço (não muda com o que está no centro da tela agora), então
   // o conjunto de rótulos visíveis também não deveria mudar só porque a
   // pessoa arrastou o mapa — arrastar não deveria fazer rótulo pisca-pisca.
+  const countriesWithAdminLabels = useMemo(
+    () => new Set(adminLabelEntries.map((e) => e.countryCode)),
+    [adminLabelEntries],
+  );
   const visibleLabelEntries = useMemo(() => {
     if (!labelEntries || labelEntries.length === 0) return [];
     // Diferente do resto do mapa (pontos de cidade, badge de cluster...),
@@ -1162,8 +1866,11 @@ function WorldMapInner({
         const apparentPx = fontSizeSvg * screenPxPerSvgUnit;
         return { rsmKey: e.rsmKey, layout: e.layout, country: e.country, fontSizeSvg, apparentPx };
       })
-      .filter((s) => s.apparentPx >= MIN_LABEL_SCREEN_PX);
-  }, [labelEntries, labelZoom, mapWidthPx]);
+      .filter((s) => s.apparentPx >= MIN_LABEL_SCREEN_PX)
+      // De bem perto, o nome do país cede lugar aos nomes de estado/província
+      // (igual aos apps de mapa: o país só "pesa" quando a tela mostra o país).
+      .filter((s) => !(labelZoom >= COUNTRY_NAME_HIDE_ZOOM && countriesWithAdminLabels.has(s.country.cca2)));
+  }, [labelEntries, labelZoom, mapWidthPx, countriesWithAdminLabels]);
 
 
   // Todo o conteúdo "pesado" do SVG (esferas, meridianos, ~180 formas de
@@ -1176,6 +1883,82 @@ function WorldMapInner({
   // o que trava o zoom/arraste inteiro (bug real, reportado e corrigido:
   // ver commit desta mudança). Com os dois separados, o quadro a quadro
   // do gesto só mexe no useMemo pequeno e barato dos rótulos.
+  // Só os países perto da tela ganham o traçado detalhado — os outros ~170
+  // ficam com o leve. Trocar o `d` de TODOS (strings de vários MB) deixava o
+  // zoom pesado; assim o DOM só carrega o detalhe de quem está sendo visto.
+  const detailCodesKey = useMemo(() => {
+    if (!labelEntries || zoom < DETAIL_USE_ZOOM) return "";
+    const [cx, cy] = projectPoint(center[0], center[1]);
+    const halfW = (400 / zoom) * 1.8;
+    const halfH = (300 / zoom) * 1.8;
+    const ids: string[] = [];
+    for (const e of labelEntries) {
+      const [[x0, y0], [x1, y1]] = e.bounds;
+      if (x1 < cx - halfW || x0 > cx + halfW || y1 < cy - halfH || y0 > cy + halfH) continue;
+      if (e.country.ccn3) ids.push(String(Number(e.country.ccn3)));
+    }
+    return ids.sort().join(",");
+  }, [labelEntries, zoom, center]);
+  const detailCodes = useMemo(() => new Set(detailCodesKey ? detailCodesKey.split(",") : []), [detailCodesKey]);
+  const activeDetailSet: DetailSet | null =
+    zoom >= DETAIL_FINE_USE_ZOOM && finePaths
+      ? finePaths
+      : zoom >= DETAIL_USE_ZOOM && detailPaths
+        ? detailPaths
+        : null;
+  // Países minúsculos SEM forma própria no mapa leve (Liechtenstein, Mônaco,
+  // San Marino, Vaticano...) — de perto, o vão que eles deixam entre os
+  // vizinhos refinados apareceria como um buraco escuro. O traçado detalhado
+  // tem a forma deles; aqui só preenche (sem hover/clique — o alfinete deles
+  // continua sendo a interação).
+  const detailOnlyContent = useMemo(() => {
+    if (!activeDetailSet || !presentCcn3) return null;
+    const [cx, cy] = projectPoint(center[0], center[1]);
+    const halfW = (400 / zoom) * 1.6;
+    const halfH = (300 / zoom) * 1.6;
+    const shapes: { id: string; d: string }[] = [];
+    for (const [id, shape] of activeDetailSet.shapes) {
+      if (presentCcn3.has(id)) continue;
+      const [[x0, y0], [x1, y1]] = shape.b;
+      if (x1 < cx - halfW || x0 > cx + halfW || y1 < cy - halfH || y0 > cy + halfH) continue;
+      shapes.push({ id, d: shape.d });
+    }
+    if (shapes.length === 0) return null;
+    return (
+      <g style={{ pointerEvents: "none" }}>
+        {shapes.map((sh) => (
+          <path key={`detail-only-${sh.id}`} d={sh.d} fill="url(#mef-land)" stroke="var(--map-stroke)" strokeWidth={hair} />
+        ))}
+      </g>
+    );
+  }, [activeDetailSet, presentCcn3, center, zoom, hair]);
+
+  // Fronteiras entre países (ver loadDetailPaths) — só os ladrilhos que
+  // tocam a tela, numa linha de espessura CONSTANTE na tela (~1,4px) e mais
+  // forte que a das divisões internas, pra o país ficar sempre demarcado.
+  const countryBordersContent = useMemo(() => {
+    if (!activeDetailSet) return null;
+    const [cx, cy] = projectPoint(center[0], center[1]);
+    const halfW = (400 / zoom) * 1.4;
+    const halfH = (300 / zoom) * 1.4;
+    const tiles = activeDetailSet.borders.filter(({ b: [[x0, y0], [x1, y1]] }) => {
+      return !(x1 < cx - halfW || x0 > cx + halfW || y1 < cy - halfH || y0 > cy + halfH);
+    });
+    if (tiles.length === 0) return null;
+    return (
+      <g style={{ pointerEvents: "none" }} fill="none" strokeLinejoin="round" strokeLinecap="round">
+        {tiles.map((t) => (
+          <path
+            key={`border-${t.b[0][0].toFixed(1)}:${t.b[0][1].toFixed(1)}:${t.d.length}`}
+            d={t.d}
+            stroke="oklch(0.9 0.025 85 / 0.62)"
+            strokeWidth={(1.4 * sizeScale) / zoom}
+          />
+        ))}
+      </g>
+    );
+  }, [activeDetailSet, center, zoom, sizeScale]);
+
   const mapBaseContent = useMemo(() => {
     // Cor de preenchimento/contorno de um país — usada tanto pro
     // <Geography> "normal" (com forma própria na topologia) quanto pro
@@ -1408,9 +2191,18 @@ function WorldMapInner({
               // respondendo a hover/clique como se ainda fosse deste país,
               // por baixo da forma nova que aparece em cima dele.
               const strippedSvgPath = strippedParentPaths?.get(geo.rsmKey);
-              const geoForRender = strippedSvgPath
-                ? { ...geo, svgPath: strippedSvgPath }
-                : geo;
+              // País "mutilado" por ter engolido outro (ver acima) fica com o
+              // traçado dele; os demais ganham o de alta resolução ao
+              // aproximar.
+              const geoId = String(Number(geo.id));
+              const detailPath = detailCodes.has(geoId) ? activeDetailSet?.shapes.get(geoId)?.d : undefined;
+              // O traçado detalhado já vem SEM o pedaço engolido (ver
+              // loadDetailPaths), então tem precedência sobre o leve.
+              const geoForRender = detailPath
+                ? { ...geo, svgPath: detailPath }
+                : strippedSvgPath
+                  ? { ...geo, svgPath: strippedSvgPath }
+                  : geo;
 
               return (
                 <Geography
@@ -1418,7 +2210,7 @@ function WorldMapInner({
                   geography={geoForRender}
                   onMouseEnter={() => handleEnterCountry(country)}
                   onMouseLeave={handleLeaveCountry}
-                  onClick={() => handleClickCountry(country)}
+                  onClick={(e) => handleClickCountry(country, e)}
                   style={{
                     // pointerEvents: "fill" é a correção do "piscar" perto de
                     // fronteiras: por padrão o SVG conta a BORDA (stroke)
@@ -1481,7 +2273,7 @@ function WorldMapInner({
               geography={{ rsmKey: e.rsmKey, svgPath: e.layout.clipPath }}
               onMouseEnter={() => handleEnterCountry(country)}
               onMouseLeave={handleLeaveCountry}
-              onClick={() => handleClickCountry(country)}
+              onClick={(e) => handleClickCountry(country, e)}
               style={{
                 default: {
                   fill: baseFill,
@@ -1550,6 +2342,47 @@ function WorldMapInner({
             for a mistura de cidade(s) e/ou país(es) minúsculo(s) ali. */}
         <AnimatePresence>
           {markerGroups.map((g, i) => {
+            if (g.kind === "city" && g.city.extra) {
+              // Lugar extra (cidade menor): versão LEVE — sem framer-motion
+              // (dezenas deles ao mesmo tempo, cada um com mola, pesava no
+              // zoom); só um fade em CSS, que roda no compositor.
+              const scale = cityScaleByPop(g.city);
+              return (
+                <Marker key={`city-${g.city.cca2}-${g.city.name}-${g.city.lat}`} coordinates={[g.city.lng, g.city.lat]}>
+                  <g
+                    className="extra-city"
+                    onMouseEnter={() => handleEnterCity(g.city)}
+                    onMouseLeave={handleLeaveCity}
+                    onClick={() => handleClickCity(g.city)}
+                    style={{ cursor: "pointer" }}
+                  >
+                    {touchTarget && <circle r={(TOUCH_HIT_RADIUS_PX * svgUnitsPerScreenPx) / zoom} fill="transparent" />}
+                    <circle
+                      r={(3.6 * scale * sizeScale) / zoom}
+                      fill={cityMarkerColor(g.city)}
+                      stroke="oklch(0.14 0.02 260)"
+                      strokeWidth={(1.1 * sizeScale) / zoom}
+                    />
+                    {g.city.showLabel && (
+                      <text
+                        textAnchor="middle"
+                        y={(-9 * sizeScale) / zoom}
+                        fontSize={(9.5 * scale * sizeScale) / zoom}
+                        fontWeight={600}
+                        fill="oklch(0.97 0.015 90)"
+                        stroke="oklch(0.1 0.02 260)"
+                        strokeWidth={(2.4 * sizeScale) / zoom}
+                        paintOrder="stroke"
+                        style={{ pointerEvents: "none" }}
+                      >
+                        {g.city.name}
+                      </text>
+                    )}
+                  </g>
+                </Marker>
+              );
+            }
+
             if (g.kind === "city") {
               return (
                 <Marker key={`city-${g.city.cca2}-${g.city.name}`} coordinates={[g.city.lng, g.city.lat]}>
@@ -1565,7 +2398,7 @@ function WorldMapInner({
                   >
                     {touchTarget && <circle r={(TOUCH_HIT_RADIUS_PX * svgUnitsPerScreenPx) / zoom} fill="transparent" />}
                     <circle
-                      r={((g.city.capital ? 5 : 3.6) * sizeScale) / zoom}
+                      r={((g.city.capital ? 5 : 3.6 * cityScaleByPop(g.city)) * sizeScale) / zoom}
                       fill={cityMarkerColor(g.city)}
                       stroke="oklch(0.14 0.02 260)"
                       strokeWidth={(1.1 * sizeScale) / zoom}
@@ -1587,7 +2420,7 @@ function WorldMapInner({
                       <text
                         textAnchor="middle"
                         y={(-9 * sizeScale) / zoom}
-                        fontSize={(9.5 * sizeScale) / zoom}
+                        fontSize={(9.5 * cityScaleByPop(g.city) * sizeScale) / zoom}
                         fontWeight={600}
                         fill="oklch(0.97 0.015 90)"
                         stroke="oklch(0.1 0.02 260)"
@@ -1710,6 +2543,8 @@ function WorldMapInner({
     statusMap,
     verifiedSet,
     zoom,
+    activeDetailSet,
+    detailCodes,
     handleEnterCountry,
     handleLeaveCountry,
     handleClickCountry,
@@ -1843,7 +2678,11 @@ function WorldMapInner({
           // sozinho conforme mais países ficam ativos.
           let merged = mergedBorderPathCacheRef.current.get(code);
           if (merged === undefined) {
-            merged = divisions.map((d) => geometryToPath(d.geometry)).join(" ");
+            // Só as divisas INTERNAS (arestas que dois estados dividem) — o
+            // contorno do país é a linha de fronteira (ver
+            // countryBordersContent); desenhar o contorno dos dois dava duas
+            // linhas paralelas em toda divisa de perto.
+            merged = geometryToPath(computeInteriorLines(divisions.map((d) => d.geometry)));
             mergedBorderPathCacheRef.current.set(code, merged);
           }
           return (
@@ -1851,8 +2690,8 @@ function WorldMapInner({
               key={`admin-border-${code}`}
               d={merged}
               fill="none"
-              stroke={isAdminOnLightBg(code) ? "oklch(0.2 0.03 260 / 0.5)" : "oklch(0.88 0.02 90 / 0.35)"}
-              strokeWidth={hair * 0.7}
+              stroke={isAdminOnLightBg(code) ? "oklch(0.2 0.03 260 / 0.55)" : "oklch(0.88 0.02 90 / 0.42)"}
+              strokeWidth={hair * 1.3}
               strokeLinejoin="round"
               style={{ pointerEvents: "none" }}
             />
@@ -1897,19 +2736,46 @@ function WorldMapInner({
   // raramente vaza da divisão mesmo sem o cinturão de segurança extra;
   // a troca é: raro vazamento visual num estado bem esquisito, contra
   // travamento real e mensurável em todo lugar.
+  // JSX deliberadamente ESTÁTICO (exceto o texto): opacidade, posição/escala
+  // e tamanho de fonte de cada nome são do applyAdminLabelFrame (DOM direto,
+  // ver acima). Se o React também escrevesse esses atributos, uma re-renderização
+  // ao assentar o zoom sobrescreveria o que o script decidiu (ex: nome
+  // escondido pela disputa de espaço voltaria a aparecer).
+  const adminIsFull = zoom >= ADMIN1_FULLNAME_ZOOM;
+  // SÓ os nomes perto da tela e grandes o bastante pra ler ficam montados no
+  // DOM: o navegador refaz o layout de CADA texto SVG toda vez que a escala do
+  // mapa muda (medido: ~730ms de layout num zoom por scroll só por isso), então
+  // centenas de nomes de regiões fora da tela custavam caro à toa. Calculado no
+  // zoom/enquadramento assentado, com folga de meia tela pra o arrasto não
+  // mostrar buraco antes de assentar.
+  const visibleAdminLabelEntries = useMemo(() => {
+    if (adminLabelEntries.length === 0) return adminLabelEntries;
+    const W = mapWidthPx || 1216;
+    const H = mapHeightPxRef.current || W * 0.625;
+    const k = (W / 800) * zoom;
+    const capSvg = MAX_ADMIN_LABEL_SCREEN_PX / k;
+    const [cx, cy] = projectPoint(center[0], center[1]);
+    const halfW = (W / 2 / k) * 1.6;
+    const halfH = (H / 2 / k) * 1.6;
+    return adminLabelEntries.filter((e) => {
+      const [[x0, y0], [x1, y1]] = e.bounds;
+      if (x1 < cx - halfW || x0 > cx + halfW || y1 < cy - halfH || y0 > cy + halfH) return false;
+      const natural = (adminIsFull ? e.fullLayout : e.abbrLayout).fontSize;
+      return Math.min(natural, capSvg) * k >= MIN_ADMIN_LABEL_SCREEN_PX * 0.8;
+    });
+  }, [adminLabelEntries, zoom, center, mapWidthPx, adminIsFull]);
+  // Nome que acabou de ser montado precisa receber opacidade/escala/posição.
+  useEffect(() => {
+    applyAdminLabelFrame(true);
+  }, [visibleAdminLabelEntries, applyAdminLabelFrame]);
   const adminLabelsContent = useMemo(() => {
-    if (adminLabelEntries.length === 0) return null;
-    const screenPxPerSvgUnit = (mapWidthPx > 0 ? mapWidthPx / 800 : 1216 / 800) * zoom;
-    const screenCapSvg = MAX_ADMIN_LABEL_SCREEN_PX / screenPxPerSvgUnit;
+    if (visibleAdminLabelEntries.length === 0) return null;
     return (
       <>
-        {adminLabelEntries.map((e) => {
-          const { layout, name, id, countryCode } = e;
-          const dimmed = isFiltered(byCca2.get(countryCode));
+        {visibleAdminLabelEntries.map((e) => {
+          const { id, countryCode } = e;
+          const text = adminIsFull ? e.name : e.abbr;
           const lightBg = isAdminOnLightBg(countryCode);
-          const fontSizeSvg = Math.min(layout.fontSize, screenCapSvg);
-          const apparentPx = fontSizeSvg * screenPxPerSvgUnit;
-          const visible = apparentPx >= MIN_ADMIN_LABEL_SCREEN_PX;
           return (
             <g
               key={`admin-label-${id}`}
@@ -1917,11 +2783,11 @@ function WorldMapInner({
                 if (el) adminOpacityGroupRefs.current.set(id, el);
                 else adminOpacityGroupRefs.current.delete(id);
               }}
-              transform={`translate(${layout.x} ${layout.y})`}
+              transform="translate(-9999 -9999)"
               style={{
                 pointerEvents: "none",
-                opacity: visible ? (dimmed ? 0.22 : 0.82) : 0,
-                transition: "opacity 0.15s ease-out",
+                opacity: 0,
+                transition: ADMIN_LABEL_FADE_TRANSITION,
               }}
             >
               <text
@@ -1931,26 +2797,56 @@ function WorldMapInner({
                 }}
                 x={0}
                 y={0}
-                transform={layout.angle ? `rotate(${layout.angle})` : undefined}
+                transform={e.abbrLayout.angle ? `rotate(${e.abbrLayout.angle})` : undefined}
                 textAnchor="middle"
                 dominantBaseline="central"
-                fontSize={fontSizeSvg}
+                fontSize={ADMIN_LABEL_BASE_FONT_PX}
                 fontWeight={600}
-                letterSpacing={fontSizeSvg * 0.01}
+                letterSpacing={ADMIN_LABEL_BASE_FONT_PX * 0.01}
                 fill={lightBg ? "oklch(0.16 0.03 260 / 0.9)" : "oklch(0.93 0.012 90 / 0.85)"}
                 stroke={lightBg ? "oklch(0.98 0.01 90 / 0.55)" : "oklch(0.09 0.02 260 / 0.5)"}
-                strokeWidth={fontSizeSvg * 0.04}
+                strokeWidth={ADMIN_LABEL_BASE_FONT_PX * 0.04}
                 paintOrder="stroke"
                 style={{ userSelect: "none" }}
               >
-                {name}
+                {text}
               </text>
             </g>
           );
         })}
       </>
     );
-  }, [adminLabelEntries, zoom, mapWidthPx, isFiltered, isAdminOnLightBg, byCca2]);
+  }, [visibleAdminLabelEntries, adminIsFull, isAdminOnLightBg]);
+
+  // Contorno + véu leve no estado/província clicado (o card mostra o resto).
+  const adminSelectedContent = useMemo(() => {
+    if (!selectedDivision) return null;
+    // Os anéis da fonte vêm no sentido oposto ao que o d3 espera pra
+    // PREENCHER — sem inverter, o d3 preenche o complemento (o mundo inteiro
+    // menos o estado). Só o contorno (stroke) não notava a diferença.
+    const geo = selectedDivision.geometry as unknown as { type: string; coordinates: unknown };
+    const flip = (rings: number[][][]) => rings.map((r) => r.slice().reverse());
+    const reversed =
+      geo.type === "Polygon"
+        ? { type: "Polygon", coordinates: flip(geo.coordinates as number[][][]) }
+        : geo.type === "MultiPolygon"
+          ? {
+              type: "MultiPolygon",
+              coordinates: (geo.coordinates as number[][][][]).map(flip),
+            }
+          : geo;
+    const d = geometryToPath(reversed as GeoGeometry);
+    return (
+      <path
+        d={d}
+        fill="oklch(0.82 0.14 78 / 0.16)"
+        stroke="oklch(0.82 0.14 78)"
+        strokeWidth={(1.6 * sizeScale) / zoom}
+        strokeLinejoin="round"
+        style={{ pointerEvents: "none" }}
+      />
+    );
+  }, [selectedDivision, sizeScale, zoom]);
 
   return (
     <div className="relative w-full">
@@ -1990,7 +2886,7 @@ function WorldMapInner({
             key={mapInstanceKey}
             zoom={zoom}
             center={center}
-            onMove={({ zoom: z }) => handleZoomMove(z)}
+            onMove={({ zoom: z, x, y }) => handleZoomMove(z, x, y)}
             onMoveEnd={({ zoom: z, coordinates }) => {
               // Cancela qualquer atualização pendente do rAF (senão ela
               // podia disparar LOGO DEPOIS dessa e, numa corrida rara,
@@ -2013,12 +2909,46 @@ function WorldMapInner({
             ]}
           >
             {mapBaseContent}
+            {detailOnlyContent}
+            {countryBordersContent}
             {mapLabelsContent}
             {adminBordersContent}
-            {adminLabelsContent}
+            {adminSelectedContent}
           </ZoomableGroup>
         </ComposableMap>
       )}
+
+      {/* Nomes de estado/província numa camada de TELA, sem a escala do mapa:
+          o navegador refaz o layout de cada texto SVG sempre que a escala dele
+          muda, então no zoom centenas de nomes dentro do grupo escalado
+          custavam um relayout cada, a cada quadro. Aqui só a posição muda. */}
+      <svg
+        ref={adminOverlayRef}
+        aria-hidden
+        className="pointer-events-none absolute"
+        // Meia tela maior pra cada lado: durante o arrasto a camada inteira é
+        // deslocada por CSS e não pode deixar uma faixa vazia na borda; quem
+        // corta no limite do mapa é o próprio container (overflow-hidden).
+        style={{ left: "-50%", top: "-50%", width: "200%", height: "200%", overflow: "visible", willChange: "transform" }}
+      >
+        {adminLabelsContent}
+      </svg>
+
+      <AnimatePresence>
+        {selectedDivision && (
+          <AdminDivisionCard
+            key={selectedDivision.id}
+            division={selectedDivision}
+            country={byCca2.get(selectedDivision.countryCode)}
+            onClose={() => setSelectedDivision(null)}
+            onOpenCountry={(c) => {
+              setSelectedDivision(null);
+              onSelect(c);
+            }}
+            onSelectPlace={handleSelectPlace}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Vinheta / brilho de borda */}
       <div
