@@ -371,6 +371,10 @@ interface AdminLabelEntry {
   abbrLayout: CountryLabelLayout;
   fullLayout: CountryLabelLayout;
   countryCode: string;
+  /** Forma da divisão (lng/lat) e caixa projetada — pro nome acompanhar a
+   * parte visível de uma região grande (ver runAdminDeclutter). */
+  geometry: GeoGeometry;
+  bounds: [[number, number], [number, number]];
 }
 
 /** Divisão administrativa já com o país-dono marcado — o fetch por país
@@ -476,6 +480,15 @@ function WorldMapInner({
         // true = perdeu a disputa de espaço (ver runAdminDeclutter) e fica
         // escondido neste zoom/enquadramento — com fade, nunca "pisca".
         hidden: boolean;
+        // Posição alternativa (unidades do viewBox) quando o ponto natural do
+        // nome está fora da tela mas a região ainda aparece — null = natural.
+        overrideX: number | null;
+        overrideY: number | null;
+        // Posição mudou: reaplica no DOM (com fade) no próximo quadro.
+        pendingMove: boolean;
+        baseX: number;
+        baseY: number;
+        angle: number;
       }
     >
   >(new Map());
@@ -501,8 +514,17 @@ function WorldMapInner({
       // escrita quando nada mudou evita fazer o navegador remedir texto
       // (setAttribute de font-size é uma das operações mais caras aqui)
       // centenas de vezes por gesto à toa.
-      if (meta.lastFontSize === fontSizeSvg && meta.lastOpacity === opacity && meta.lastIsFull === isFull) continue;
+      if (
+        meta.lastFontSize === fontSizeSvg &&
+        meta.lastOpacity === opacity &&
+        meta.lastIsFull === isFull &&
+        !meta.pendingMove
+      ) {
+        continue;
+      }
       const textChanged = meta.lastIsFull !== isFull;
+      const moving = meta.pendingMove;
+      meta.pendingMove = false;
       const wasWritten = meta.lastIsFull !== null;
       meta.lastFontSize = fontSizeSvg;
       meta.lastOpacity = opacity;
@@ -513,12 +535,21 @@ function WorldMapInner({
       // Troca de nível num rótulo que já estava escrito: some na hora (sem
       // transição), troca o texto invisível e reaparece com fade no
       // próximo quadro (ver rAF no fim desta função).
-      if (textChanged && wasWritten) {
+      if ((textChanged || moving) && wasWritten) {
         groupEl.style.transition = "none";
         groupEl.style.opacity = "0";
         pendingFadeInIdsRef.current.add(id);
       } else {
         groupEl.style.opacity = String(opacity);
+      }
+      if (moving) {
+        // Nome acompanhando a parte visível de uma região grande (ver
+        // runAdminDeclutter): troca de posição some -> reaparece com fade.
+        const x = meta.overrideX ?? meta.baseX;
+        const y = meta.overrideY ?? meta.baseY;
+        groupEl.setAttribute("transform", `translate(${x} ${y})`);
+        if (meta.overrideX == null && meta.angle) textEl.setAttribute("transform", `rotate(${meta.angle})`);
+        else textEl.removeAttribute("transform");
       }
       textEl.setAttribute("font-size", String(fontSizeSvg));
       textEl.setAttribute("stroke-width", String(fontSizeSvg * 0.04));
@@ -849,7 +880,9 @@ function WorldMapInner({
     const result = new Set<string>();
     if (centerCca2) result.add(centerCca2); // garantido, nunca cortado pelo teto
     for (const cca2 of ranked) {
-      if (result.size >= MAX_ACTIVE_ADMIN_COUNTRIES) break;
+      // De bem perto a tela mostra poucos países de verdade, então cabem mais
+      // com divisões ao mesmo tempo (de longe o teto protege a fluidez).
+      if (result.size >= (zoom >= 10 ? MAX_ACTIVE_ADMIN_COUNTRIES + 2 : MAX_ACTIVE_ADMIN_COUNTRIES)) break;
       result.add(cca2);
     }
     return [...result];
@@ -942,6 +975,8 @@ function WorldMapInner({
               abbrLayout: layouts.abbr,
               fullLayout: layouts.full,
               countryCode: code,
+              geometry: d.geometry,
+              bounds: projectedBounds(d.geometry),
             });
           }
         }
@@ -1034,6 +1069,12 @@ function WorldMapInner({
         lastOpacity: number;
         lastIsFull: boolean | null;
         hidden: boolean;
+        overrideX: number | null;
+        overrideY: number | null;
+        pendingMove: boolean;
+        baseX: number;
+        baseY: number;
+        angle: number;
       }
     >();
     for (const e of adminLabelEntries) {
@@ -1050,6 +1091,12 @@ function WorldMapInner({
         lastOpacity: NaN,
         lastIsFull: null,
         hidden: adminLabelMetaRef.current.get(e.id)?.hidden ?? false,
+        overrideX: adminLabelMetaRef.current.get(e.id)?.overrideX ?? null,
+        overrideY: adminLabelMetaRef.current.get(e.id)?.overrideY ?? null,
+        pendingMove: false,
+        baseX: e.abbrLayout.x,
+        baseY: e.abbrLayout.y,
+        angle: e.abbrLayout.angle ?? 0,
       });
     }
     return map;
@@ -1531,38 +1578,93 @@ function WorldMapInner({
         }
       }
 
-      const cands: { id: string; box: Box; prio: number }[] = [];
+      let changed = false;
+      const cands: { id: string; box: Box; prio: number; ox: number | null; oy: number | null }[] = [];
       for (const e of entries) {
         const meta = metas.get(e.id);
         if (!meta) continue;
         const layout = isFull ? e.fullLayout : e.abbrLayout;
         const fontPx = Math.min(layout.fontSize, capSvg) * k;
-        const sx = W / 2 + (layout.x - cx) * k;
-        const sy = H / 2 + (layout.y - cy) * k;
-        if (fontPx < MIN_ADMIN_LABEL_SCREEN_PX || sx < -padX || sx > W + padX || sy < -padY || sy > H + padY) {
-          meta.hidden = false; // fora da tela ou pequeno demais: nada a disputar
-          continue;
-        }
+        let ax = layout.x;
+        let ay = layout.y;
+        let sx = W / 2 + (ax - cx) * k;
+        let sy = H / 2 + (ay - cy) * k;
         const text = isFull ? e.name : e.abbr;
         // Sigla (caixa alta) é mais larga por letra que nome em caixa mista.
         const w = text.length * fontPx * (isFull ? 0.58 : 0.72) + 4;
         const h = fontPx * 1.2;
-        const rad = ((layout.angle ?? 0) * Math.PI) / 180;
+        let ox: number | null = null;
+        let oy: number | null = null;
+        const inset = 28;
+        const anchorOnScreen = sx >= inset && sx <= W - inset && sy >= inset && sy <= H - inset;
+        if (fontPx >= MIN_ADMIN_LABEL_SCREEN_PX && !anchorOnScreen) {
+          // O ponto natural do nome está fora da tela, mas a região pode ainda
+          // aparecer (estado grande de perto): leva o nome pra parte visível
+          // dela, o ponto de dentro mais perto do centro da tela.
+          const [[bx0, by0], [bx1, by1]] = e.bounds;
+          const ix0 = Math.max(bx0, cx - (W / 2 - inset) / k);
+          const ix1 = Math.min(bx1, cx + (W / 2 - inset) / k);
+          const iy0 = Math.max(by0, cy - (H / 2 - inset) / k);
+          const iy1 = Math.min(by1, cy + (H / 2 - inset) / k);
+          if ((ix1 - ix0) * k >= w && (iy1 - iy0) * k >= h) {
+            let bestD = Infinity;
+            const N = 4;
+            for (let i = 0; i < N; i++) {
+              for (let j = 0; j < N; j++) {
+                const px = ix0 + ((i + 0.5) / N) * (ix1 - ix0);
+                const py = iy0 + ((j + 0.5) / N) * (iy1 - iy0);
+                const dist = Math.hypot(px - cx, py - cy);
+                if (dist >= bestD) continue;
+                const ll = unprojectPoint(px, py);
+                if (ll && pointInGeometry(ll, e.geometry)) {
+                  bestD = dist;
+                  ox = px;
+                  oy = py;
+                }
+              }
+            }
+            if (ox != null && oy != null) {
+              ax = ox;
+              ay = oy;
+              sx = W / 2 + (ax - cx) * k;
+              sy = H / 2 + (ay - cy) * k;
+            }
+          }
+        }
+        if (fontPx < MIN_ADMIN_LABEL_SCREEN_PX || sx < -padX || sx > W + padX || sy < -padY || sy > H + padY) {
+          meta.hidden = false; // fora da tela ou pequeno demais: nada a disputar
+          if (meta.overrideX != null) {
+            meta.overrideX = null;
+            meta.overrideY = null;
+            meta.pendingMove = true;
+            changed = true;
+          }
+          continue;
+        }
+        // Rotação só vale na posição natural (a alternativa é horizontal).
+        const rad = ox != null ? 0 : ((layout.angle ?? 0) * Math.PI) / 180;
         const hw = (Math.abs(Math.cos(rad)) * w + Math.abs(Math.sin(rad)) * h) / 2;
         const hh = (Math.abs(Math.sin(rad)) * w + Math.abs(Math.cos(rad)) * h) / 2;
         cands.push({
           id: e.id,
           box: { x0: sx - hw, y0: sy - hh, x1: sx + hw, y1: sy + hh },
           prio: e.fullLayout.fontSize,
+          ox,
+          oy,
         });
       }
       cands.sort((a, b) => b.prio - a.prio);
       const accepted: Box[] = [];
-      let changed = false;
       for (const c of cands) {
         const blocked = obstacles.some((o) => overlaps(c.box, o)) || accepted.some((o) => overlaps(c.box, o));
         if (!blocked) accepted.push(c.box);
         const meta = metas.get(c.id)!;
+        if (meta.overrideX !== c.ox || meta.overrideY !== c.oy) {
+          meta.overrideX = c.ox;
+          meta.overrideY = c.oy;
+          meta.pendingMove = true;
+          changed = true;
+        }
         if (meta.hidden !== blocked) {
           meta.hidden = blocked;
           meta.lastOpacity = NaN; // força a escrita no próximo applyAdminLabelFrame
