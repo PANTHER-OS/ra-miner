@@ -298,6 +298,14 @@ export function projectLngLat(lng: number, lat: number): [number, number] | null
   return projection([lng, lat]) as [number, number] | null;
 }
 
+/** Inverso de projectLngLat: de um ponto no espaço 0-800 x 0-600 (o mesmo
+ * em que as formas são desenhadas) pra [lng, lat]. Usado pra descobrir em
+ * qual estado/província a pessoa clicou. */
+export function unprojectPoint(x: number, y: number): [number, number] | null {
+  const r = projection.invert?.([x, y]);
+  return r && Number.isFinite(r[0]) && Number.isFinite(r[1]) ? [r[0], r[1]] : null;
+}
+
 /** Bounding box de uma geometria inteira, já projetada pro mesmo espaço
  * (0-800 x 0-600). Ao contrário de testar só o PONTO do rótulo (o "centro
  * visual" do país, que pode estar bem longe da borda da tela mesmo com um

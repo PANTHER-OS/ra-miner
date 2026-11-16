@@ -13,7 +13,13 @@ import { Minus, Plus, RotateCcw, MapPin, ChevronRight } from "lucide-react";
 import type { Country } from "@/lib/countries";
 import { getPtName } from "@/lib/countries";
 import type { PassportStatus } from "@/lib/passport";
-import { getVisibleCities, projectPoint, PROJECTION_SCALE, type CityWithCountry } from "@/lib/cities";
+import {
+  getAllCities,
+  getVisibleCities,
+  projectPoint,
+  PROJECTION_SCALE,
+  type CityWithCountry,
+} from "@/lib/cities";
 import { useI18n } from "@/lib/i18n/context";
 import {
   computeCountryLabel,
@@ -22,19 +28,33 @@ import {
   pointInPolygonRing,
   projectLngLat,
   projectedBounds,
+  unprojectPoint,
   type CountryLabelLayout,
   type GeoGeometry,
 } from "@/lib/countryLabels";
 import { fetchAdminDivisions, type AdminDivision } from "@/lib/adminDivisions";
+import { findDivisionAt, pointInGeometry } from "@/lib/geometryHit";
+import { AdminDivisionCard, type SelectedDivision } from "./AdminDivisionCard";
 
 const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
+
+// Contorno de maior resolução (50m) só pro DESENHO dos países quando a pessoa
+// aproxima: o mapa-base de 110m é leve (ótimo de longe), mas de perto as
+// costas e fronteiras viram poucos segmentos retos. Trocar o `svgPath` de
+// cada país mantém tudo o mais igual — mesmo hover, clique, rótulos, cores —
+// só o traçado ganha detalhe, sem o mapa "mudar".
+const GEO_URL_DETAIL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json";
+const DETAIL_PRELOAD_ZOOM = 2.5;
+const DETAIL_USE_ZOOM = 5;
 
 const MIN_ZOOM = 1;
 // Antes ia só até 8x — em regiões com muitos países pequenos e próximos
 // (Caribe, Bálcãs, Golfo Pérsico...) isso não deixava zoom suficiente pra
 // separar um país do outro com o dedo/mouse. 16x dá bastante margem pra
-// isolar qualquer país individualmente antes de tocar.
-const MAX_ZOOM = 16;
+// isolar qualquer país individualmente antes de tocar. Depois subiu pra 64x:
+// com estados/províncias e cidades no mapa, dá pra chegar bem perto de uma
+// região (o desenho segue o MESMO mapa — só ganha mais detalhe, nunca troca).
+const MAX_ZOOM = 40;
 // [0, 0] (Greenwich/equador) é o único ponto que a projeção já posiciona
 // exatamente no centro geométrico da viewBox (400, 300 numa caixa de
 // 800x600), sem precisar de nenhum deslocamento extra. Qualquer outro valor
@@ -246,27 +266,6 @@ interface CountryLabelEntry {
    * achar quais países têm AO MENOS uma beiradinha na janela visível
    * agora (ver visibleAdminCodes), não só o que está bem no meio. */
   bounds: [[number, number], [number, number]];
-}
-
-/** Mesmo teste ponto-em-polígono usado pra achar território "engolido"
- * (ver comentário grande mais abaixo), só que aqui pra outra coisa:
- * achar em qual país o CENTRO atual do mapa cai — usado pra mostrar as
- * divisões internas de um país só de dar zoom nele, sem precisar
- * selecionar/abrir o card (ver zoomedCountryCode). Testa só o anel
- * externo de cada polígono (ignora buracos internos) — aproximação
- * aceitável pro que isso decide (não precisa de precisão de fronteira,
- * só "mais ou menos que país é esse"). */
-function pointInGeometry(point: [number, number], geometry: GeoGeometry): boolean {
-  const geo = geometry as unknown as { type: string; coordinates: unknown };
-  if (geo.type === "Polygon") {
-    const rings = geo.coordinates as [number, number][][];
-    return rings.length > 0 && pointInPolygonRing(point, rings[0]);
-  }
-  if (geo.type === "MultiPolygon") {
-    const polys = geo.coordinates as [number, number][][][];
-    return polys.some((poly) => poly.length > 0 && pointInPolygonRing(point, poly[0]));
-  }
-  return false;
 }
 
 interface AdminLabelEntry {
@@ -591,6 +590,7 @@ function WorldMapInner({
   const atHome = zoom === 1 && center[0] === HOME_CENTER[0] && center[1] === HOME_CENTER[1];
 
   const reset = () => {
+    setSelectedDivision(null);
     setZoom(1);
     setCenter(HOME_CENTER);
     setMapInstanceKey((k) => k + 1);
@@ -769,6 +769,45 @@ function WorldMapInner({
   const mergedBorderPathCacheRef = useRef<Map<string, string>>(new Map());
   const [adminDivisions, setAdminDivisions] = useState<TaggedAdminDivision[]>([]);
   const [adminLabelEntries, setAdminLabelEntries] = useState<AdminLabelEntry[]>([]);
+  const adminDivisionsRef = useRef(adminDivisions);
+  adminDivisionsRef.current = adminDivisions;
+  // Estado/província que a pessoa clicou (abre o card de informações).
+  const [selectedDivision, setSelectedDivision] = useState<SelectedDivision | null>(null);
+  // Traçados de alta resolução por país (ccn3 sem zeros à esquerda → `d`),
+  // carregados em segundo plano assim que a pessoa começa a aproximar.
+  const [detailPaths, setDetailPaths] = useState<Map<string, string> | null>(null);
+  const wantsDetail = zoom >= DETAIL_PRELOAD_ZOOM;
+  useEffect(() => {
+    if (!wantsDetail) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [topo, res] = await Promise.all([import("topojson-client"), fetch(GEO_URL_DETAIL)]);
+        const topology = (await res.json()) as { objects: Record<string, unknown> };
+        const fc = topo.feature(topology, topology.objects.countries) as {
+          features: { id?: string | number; geometry: GeoGeometry | null }[];
+        };
+        const out = new Map<string, string>();
+        // Em lotes, cedendo um quadro entre eles — gerar ~170 traçados de
+        // uma vez travaria a tela justo quando a pessoa está aproximando.
+        for (let i = 0; i < fc.features.length; i += 12) {
+          if (cancelled) return;
+          for (const f of fc.features.slice(i, i + 12)) {
+            if (f.id == null || !f.geometry) continue;
+            const d = geometryToPath(f.geometry);
+            if (d) out.set(String(Number(f.id)), d);
+          }
+          await new Promise((r) => requestAnimationFrame(r));
+        }
+        if (!cancelled) setDetailPaths(out);
+      } catch {
+        // sem rede: segue com o traçado leve; tenta de novo na próxima aproximação
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [wantsDetail]);
   useEffect(() => {
     let cancelled = false;
     const codes = activeAdminCodesKey ? activeAdminCodesKey.split(",") : [];
@@ -954,12 +993,57 @@ function WorldMapInner({
     if (c) setHovered(c);
   }, []);
   const handleLeaveCountry = useCallback(() => setHovered(null), []);
+  // Clicar numa área em que as divisões internas estão desenhadas escolhe o
+  // ESTADO/PROVÍNCIA sob o dedo (abre o card de informações dele) em vez do
+  // país inteiro — o país continua a um clique de distância no card. O
+  // ponto clicado vira lng/lat desfazendo o transform do ZoomableGroup
+  // (getScreenCTM) e a projeção, e é testado contra as divisões carregadas.
   const handleClickCountry = useCallback(
-    (c: Country | undefined) => {
+    (c: Country | undefined, e?: React.MouseEvent) => {
+      const divisions = adminDivisionsRef.current;
+      if (e && divisions.length > 0) {
+        const g = (e.currentTarget as SVGElement).closest("g.rsm-zoomable-group") as SVGGElement | null;
+        const ctm = g?.getScreenCTM();
+        if (ctm) {
+          const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
+          const lngLat = unprojectPoint(pt.x, pt.y);
+          const hit = lngLat ? findDivisionAt(lngLat, divisions) : null;
+          if (hit) {
+            setSelectedDivision(hit);
+            return;
+          }
+        }
+      }
       if (c) onSelect(c);
     },
     [onSelect],
   );
+  // Lugar escolhido na lista do card: se é uma das cidades do app (que têm
+  // painel próprio — atrações, onde ficar...), abre o painel dela; senão voa
+  // até o ponto no mapa e mantém o card aberto.
+  const handleSelectPlace = useCallback(
+    (p: { name: string; lat: number; lng: number }, countryCode: string) => {
+      const match = getAllCities().find(
+        (c) => c.cca2 === countryCode && Math.abs(c.lat - p.lat) < 0.15 && Math.abs(c.lng - p.lng) < 0.15,
+      );
+      if (match && onSelectCity) {
+        setSelectedDivision(null);
+        onSelectCity(match);
+        return;
+      }
+      setCenter([p.lng, p.lat]);
+      setZoom((z) => Math.max(z, 12));
+    },
+    [onSelectCity],
+  );
+  useEffect(() => {
+    if (!selectedDivision) return;
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") setSelectedDivision(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedDivision]);
 
   const handleEnterCity = useCallback((c: CityWithCountry) => {
     setHoveredCity(c);
@@ -1264,6 +1348,7 @@ function WorldMapInner({
   // o que trava o zoom/arraste inteiro (bug real, reportado e corrigido:
   // ver commit desta mudança). Com os dois separados, o quadro a quadro
   // do gesto só mexe no useMemo pequeno e barato dos rótulos.
+  const useDetailPaths = zoom >= DETAIL_USE_ZOOM && detailPaths != null;
   const mapBaseContent = useMemo(() => {
     // Cor de preenchimento/contorno de um país — usada tanto pro
     // <Geography> "normal" (com forma própria na topologia) quanto pro
@@ -1496,9 +1581,17 @@ function WorldMapInner({
               // respondendo a hover/clique como se ainda fosse deste país,
               // por baixo da forma nova que aparece em cima dele.
               const strippedSvgPath = strippedParentPaths?.get(geo.rsmKey);
+              // País "mutilado" por ter engolido outro (ver acima) fica com o
+              // traçado dele; os demais ganham o de alta resolução ao
+              // aproximar.
+              const detailPath = useDetailPaths
+                ? detailPaths?.get(String(Number(geo.id)))
+                : undefined;
               const geoForRender = strippedSvgPath
                 ? { ...geo, svgPath: strippedSvgPath }
-                : geo;
+                : detailPath
+                  ? { ...geo, svgPath: detailPath }
+                  : geo;
 
               return (
                 <Geography
@@ -1506,7 +1599,7 @@ function WorldMapInner({
                   geography={geoForRender}
                   onMouseEnter={() => handleEnterCountry(country)}
                   onMouseLeave={handleLeaveCountry}
-                  onClick={() => handleClickCountry(country)}
+                  onClick={(e) => handleClickCountry(country, e)}
                   style={{
                     // pointerEvents: "fill" é a correção do "piscar" perto de
                     // fronteiras: por padrão o SVG conta a BORDA (stroke)
@@ -1569,7 +1662,7 @@ function WorldMapInner({
               geography={{ rsmKey: e.rsmKey, svgPath: e.layout.clipPath }}
               onMouseEnter={() => handleEnterCountry(country)}
               onMouseLeave={handleLeaveCountry}
-              onClick={() => handleClickCountry(country)}
+              onClick={(e) => handleClickCountry(country, e)}
               style={{
                 default: {
                   fill: baseFill,
@@ -1798,6 +1891,8 @@ function WorldMapInner({
     statusMap,
     verifiedSet,
     zoom,
+    useDetailPaths,
+    detailPaths,
     handleEnterCountry,
     handleLeaveCountry,
     handleClickCountry,
@@ -2043,6 +2138,36 @@ function WorldMapInner({
     );
   }, [adminLabelEntries, zoom, mapWidthPx, isFiltered, isAdminOnLightBg, byCca2]);
 
+  // Contorno + véu leve no estado/província clicado (o card mostra o resto).
+  const adminSelectedContent = useMemo(() => {
+    if (!selectedDivision) return null;
+    // Os anéis da fonte vêm no sentido oposto ao que o d3 espera pra
+    // PREENCHER — sem inverter, o d3 preenche o complemento (o mundo inteiro
+    // menos o estado). Só o contorno (stroke) não notava a diferença.
+    const geo = selectedDivision.geometry as unknown as { type: string; coordinates: unknown };
+    const flip = (rings: number[][][]) => rings.map((r) => r.slice().reverse());
+    const reversed =
+      geo.type === "Polygon"
+        ? { type: "Polygon", coordinates: flip(geo.coordinates as number[][][]) }
+        : geo.type === "MultiPolygon"
+          ? {
+              type: "MultiPolygon",
+              coordinates: (geo.coordinates as number[][][][]).map(flip),
+            }
+          : geo;
+    const d = geometryToPath(reversed as GeoGeometry);
+    return (
+      <path
+        d={d}
+        fill="oklch(0.82 0.14 78 / 0.16)"
+        stroke="oklch(0.82 0.14 78)"
+        strokeWidth={(1.6 * sizeScale) / zoom}
+        strokeLinejoin="round"
+        style={{ pointerEvents: "none" }}
+      />
+    );
+  }, [selectedDivision, sizeScale, zoom]);
+
   return (
     <div className="relative w-full">
     <div
@@ -2106,10 +2231,27 @@ function WorldMapInner({
             {mapBaseContent}
             {mapLabelsContent}
             {adminBordersContent}
+            {adminSelectedContent}
             {adminLabelsContent}
           </ZoomableGroup>
         </ComposableMap>
       )}
+
+      <AnimatePresence>
+        {selectedDivision && (
+          <AdminDivisionCard
+            key={selectedDivision.id}
+            division={selectedDivision}
+            country={byCca2.get(selectedDivision.countryCode)}
+            onClose={() => setSelectedDivision(null)}
+            onOpenCountry={(c) => {
+              setSelectedDivision(null);
+              onSelect(c);
+            }}
+            onSelectPlace={handleSelectPlace}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Vinheta / brilho de borda */}
       <div

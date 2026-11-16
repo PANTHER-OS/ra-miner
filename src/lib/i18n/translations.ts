@@ -42,6 +42,10 @@ export interface Translations {
   settingsLanguageHint: string;
   settingsMoreSoon: string;
   close: string;
+  divisionArea: string;
+  divisionCities: string;
+  divisionNoCities: string;
+  divisionOpenCountry: string;
 }
 
 const pt: Translations = {
@@ -81,6 +85,10 @@ const pt: Translations = {
   settingsLanguageHint: "Detectamos automaticamente pelo idioma do seu aparelho — troque quando quiser.",
   settingsMoreSoon: "Mais opções chegando em breve",
   close: "Fechar",
+  divisionArea: "Área",
+  divisionCities: "Cidades e lugares",
+  divisionNoCities: "Nenhuma cidade cadastrada aqui ainda",
+  divisionOpenCountry: "Abrir país",
 };
 
 const en: Translations = {
@@ -120,6 +128,10 @@ const en: Translations = {
   settingsLanguageHint: "Detected automatically from your device's language — change it whenever you like.",
   settingsMoreSoon: "More options coming soon",
   close: "Close",
+  divisionArea: "Area",
+  divisionCities: "Cities and places",
+  divisionNoCities: "No cities listed here yet",
+  divisionOpenCountry: "Open country",
 };
 
 const es: Translations = {
@@ -159,6 +171,10 @@ const es: Translations = {
   settingsLanguageHint: "Lo detectamos automáticamente según el idioma de tu dispositivo — cámbialo cuando quieras.",
   settingsMoreSoon: "Más opciones muy pronto",
   close: "Cerrar",
+  divisionArea: "Superficie",
+  divisionCities: "Ciudades y lugares",
+  divisionNoCities: "Aún no hay ciudades registradas aquí",
+  divisionOpenCountry: "Abrir país",
 };
 
 const fr: Translations = {
@@ -198,6 +214,10 @@ const fr: Translations = {
   settingsLanguageHint: "Détectée automatiquement selon la langue de votre appareil — changez-la quand vous voulez.",
   settingsMoreSoon: "Plus d'options bientôt",
   close: "Fermer",
+  divisionArea: "Superficie",
+  divisionCities: "Villes et lieux",
+  divisionNoCities: "Aucune ville enregistrée ici pour l'instant",
+  divisionOpenCountry: "Ouvrir le pays",
 };
 
 const de: Translations = {
@@ -237,6 +257,10 @@ const de: Translations = {
   settingsLanguageHint: "Automatisch anhand der Sprache deines Geräts erkannt — jederzeit änderbar.",
   settingsMoreSoon: "Weitere Optionen folgen bald",
   close: "Schließen",
+  divisionArea: "Fläche",
+  divisionCities: "Städte und Orte",
+  divisionNoCities: "Hier sind noch keine Städte hinterlegt",
+  divisionOpenCountry: "Land öffnen",
 };
 
 const it: Translations = {
@@ -276,6 +300,10 @@ const it: Translations = {
   settingsLanguageHint: "Rilevata automaticamente dalla lingua del tuo dispositivo — cambiala quando vuoi.",
   settingsMoreSoon: "Altre opzioni in arrivo",
   close: "Chiudi",
+  divisionArea: "Superficie",
+  divisionCities: "Città e luoghi",
+  divisionNoCities: "Nessuna città registrata qui per ora",
+  divisionOpenCountry: "Apri il paese",
 };
 
 const nl: Translations = {
@@ -315,6 +343,10 @@ const nl: Translations = {
   settingsLanguageHint: "Automatisch gedetecteerd op basis van de taal van je apparaat — wijzig het wanneer je wilt.",
   settingsMoreSoon: "Binnenkort meer opties",
   close: "Sluiten",
+  divisionArea: "Oppervlakte",
+  divisionCities: "Steden en plaatsen",
+  divisionNoCities: "Hier staan nog geen steden",
+  divisionOpenCountry: "Land openen",
 };
 
 const pl: Translations = {
@@ -354,6 +386,10 @@ const pl: Translations = {
   settingsLanguageHint: "Wykryliśmy go automatycznie na podstawie języka Twojego urządzenia — zmień go, kiedy chcesz.",
   settingsMoreSoon: "Więcej opcji już wkrótce",
   close: "Zamknij",
+  divisionArea: "Powierzchnia",
+  divisionCities: "Miasta i miejsca",
+  divisionNoCities: "Brak miast w tym miejscu",
+  divisionOpenCountry: "Otwórz kraj",
 };
 
 const tr: Translations = {
@@ -393,6 +429,10 @@ const tr: Translations = {
   settingsLanguageHint: "Cihazınızın diline göre otomatik olarak algılandı — dilediğiniz zaman değiştirin.",
   settingsMoreSoon: "Daha fazla seçenek yakında",
   close: "Kapat",
+  divisionArea: "Yüzölçümü",
+  divisionCities: "Şehirler ve yerler",
+  divisionNoCities: "Burada henüz kayıtlı şehir yok",
+  divisionOpenCountry: "Ülkeyi aç",
 };
 
 const ru: Translations = {
@@ -432,6 +472,10 @@ const ru: Translations = {
   settingsLanguageHint: "Определён автоматически по языку вашего устройства — измените в любой момент.",
   settingsMoreSoon: "Больше настроек скоро",
   close: "Закрыть",
+  divisionArea: "Площадь",
+  divisionCities: "Города и места",
+  divisionNoCities: "Здесь пока нет городов",
+  divisionOpenCountry: "Открыть страну",
 };
 
 const ar: Translations = {
@@ -471,6 +515,10 @@ const ar: Translations = {
   settingsLanguageHint: "تم اكتشافها تلقائيًا من لغة جهازك — غيّرها متى شئت.",
   settingsMoreSoon: "المزيد من الخيارات قريبًا",
   close: "إغلاق",
+  divisionArea: "المساحة",
+  divisionCities: "المدن والأماكن",
+  divisionNoCities: "لا توجد مدن مسجلة هنا بعد",
+  divisionOpenCountry: "افتح الدولة",
 };
 
 const hi: Translations = {
@@ -510,6 +558,10 @@ const hi: Translations = {
   settingsLanguageHint: "आपके डिवाइस की भाषा से स्वतः पहचानी गई — जब चाहें बदलें।",
   settingsMoreSoon: "जल्द ही और विकल्प",
   close: "बंद करें",
+  divisionArea: "क्षेत्रफल",
+  divisionCities: "शहर और स्थान",
+  divisionNoCities: "यहाँ अभी कोई शहर दर्ज नहीं है",
+  divisionOpenCountry: "देश खोलें",
 };
 
 const zh: Translations = {
@@ -549,6 +601,10 @@ const zh: Translations = {
   settingsLanguageHint: "已根据您设备的语言自动检测 — 随时可以更改。",
   settingsMoreSoon: "更多选项即将推出",
   close: "关闭",
+  divisionArea: "面积",
+  divisionCities: "城市和地点",
+  divisionNoCities: "这里暂时没有收录城市",
+  divisionOpenCountry: "打开国家",
 };
 
 const ja: Translations = {
@@ -588,6 +644,10 @@ const ja: Translations = {
   settingsLanguageHint: "端末の言語から自動的に検出されました — いつでも変更できます。",
   settingsMoreSoon: "その他の設定は近日公開",
   close: "閉じる",
+  divisionArea: "面積",
+  divisionCities: "都市と名所",
+  divisionNoCities: "ここにはまだ都市が登録されていません",
+  divisionOpenCountry: "国を開く",
 };
 
 const ko: Translations = {
@@ -627,6 +687,10 @@ const ko: Translations = {
   settingsLanguageHint: "기기 언어를 기준으로 자동 감지되었습니다 — 언제든지 변경할 수 있어요.",
   settingsMoreSoon: "더 많은 옵션이 곧 추가됩니다",
   close: "닫기",
+  divisionArea: "면적",
+  divisionCities: "도시와 장소",
+  divisionNoCities: "아직 등록된 도시가 없습니다",
+  divisionOpenCountry: "국가 열기",
 };
 
 const id: Translations = {
@@ -666,6 +730,10 @@ const id: Translations = {
   settingsLanguageHint: "Terdeteksi otomatis dari bahasa perangkat Anda — ubah kapan saja.",
   settingsMoreSoon: "Opsi lainnya segera hadir",
   close: "Tutup",
+  divisionArea: "Luas wilayah",
+  divisionCities: "Kota dan tempat",
+  divisionNoCities: "Belum ada kota terdaftar di sini",
+  divisionOpenCountry: "Buka negara",
 };
 
 const th: Translations = {
@@ -705,6 +773,10 @@ const th: Translations = {
   settingsLanguageHint: "ตรวจพบโดยอัตโนมัติจากภาษาของอุปกรณ์คุณ — เปลี่ยนได้ทุกเมื่อ",
   settingsMoreSoon: "ตัวเลือกเพิ่มเติมเร็วๆ นี้",
   close: "ปิด",
+  divisionArea: "พื้นที่",
+  divisionCities: "เมืองและสถานที่",
+  divisionNoCities: "ยังไม่มีเมืองที่บันทึกไว้ที่นี่",
+  divisionOpenCountry: "เปิดประเทศ",
 };
 
 const vi: Translations = {
@@ -744,6 +816,10 @@ const vi: Translations = {
   settingsLanguageHint: "Được tự động phát hiện theo ngôn ngữ thiết bị của bạn — thay đổi bất cứ lúc nào.",
   settingsMoreSoon: "Thêm tùy chọn sắp ra mắt",
   close: "Đóng",
+  divisionArea: "Diện tích",
+  divisionCities: "Thành phố và địa điểm",
+  divisionNoCities: "Chưa có thành phố nào ở đây",
+  divisionOpenCountry: "Mở quốc gia",
 };
 
 export const TRANSLATIONS: Record<string, Translations> = {
